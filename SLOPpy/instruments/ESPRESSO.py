@@ -305,8 +305,8 @@ def ESPRESSO_get_input_data(archive, file_rad, night_dict, fiber='A', skip_ccf=N
     wave_with_berv =  e2ds_fits[5].data[properties['orders_regroup'], :][selected_orders, :]
     step_with_berv =  e2ds_fits[7].data[properties['orders_regroup'], :][selected_orders, :]
 
-    input_dict['wave'], input_dict['step'] = shift_wavelength_to_rest(wave_with_berv, step_with_berv, input_dict['BERV'] )
-
+    #input_dict['wave'], input_dict['step'] = shift_wavelength_to_rest(wave_with_berv, step_with_berv, -input_dict['BERV'] )
+    input_dict['wave'], input_dict['step'] = shift_wavelength(wave_with_berv, step_with_berv, -input_dict['BERV'] )
     input_dict['wave_size'] = e2ds_fits[1].header['NAXIS1']
 
     e2ds_fits.close()

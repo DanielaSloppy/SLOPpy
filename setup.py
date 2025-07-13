@@ -11,7 +11,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setup(
     name="SLOPpy-package",
-    version='1.5.0',
+    version='1.5.1',
     author="Daniela Sicilia, Luca Malavolta, et al.",
 	author_email = 'daniela.sicilia@inaf.it, luca.malavolta@unipd.it',
 	url = 'https://github.com/LucaMalavolta/SLOPpy',
