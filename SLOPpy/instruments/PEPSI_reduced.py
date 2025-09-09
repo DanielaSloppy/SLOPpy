@@ -113,6 +113,8 @@ def PEPSI_get_input_data(archive, file_rad, mask, fiber='A', skip_ccf=None, skip
     input_dict['MJD'] = pepsi_fits[0].header['JD-OBS'] - constants.MJD
 
     input_dict['AIRMASS'] = pepsi_fits[0].header['AIRMASS']
+    input_dict['AIRM_START'] = pepsi_fits[0].header['AIRMASS']
+    input_dict['AIRM_END'] = pepsi_fits[0].header['AIRMASS']
 
     input_dict['UTC'] = (input_dict['MJD'] - int(input_dict['MJD'])) * 86400.
     input_dict['HUMIDITY'] = pepsi_fits[0].header['LBTH'] # Relative humidity in % for GEOELEV.

@@ -273,7 +273,8 @@ def DRSv3_get_input_data(archive, file_rad, keywords, properties, mask, fiber='A
     e2ds_fits.close()
     if not skip_ccf:
         ccf_fits.close()
-
+        
+    input_dict['e2ds']=cleanSpectrumMatrix(input_dict['wave'],input_dict['e2ds'])
     return input_dict,input_s1d
 
 

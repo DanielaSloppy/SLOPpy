@@ -69,3 +69,78 @@ def difference_utc2tdb(jd):
                 62.184, 63.184, 64.184, 65.184, 66.184, 67.184, 68.184, 69.184])/86400.
 
     return df_table[(jd_table-jd<0)][-1]
+    
+    
+    
+def cleanSpectrumMatrix(ww,ss,plot=False):
+    
+    from scipy.ndimage import median_filter
+    import numpy as np
+
+    ss=ss.astype(np.float64)
+
+    nspikes=3
+    
+    correctedPixels=list()
+
+    #array where the smoothed spectrum will be stored
+    filteredSpectrum=ss.copy()
+
+    #array where the spike-less spectrum will be stored
+    cleanedSpectrum=ss.copy()
+
+    for order in range(ss.shape[0]):#working order by order
+
+        median_filter(ss[order,:], size=5, mode='nearest')
+
+        #get a smoothed version of the spectrum where spikes are still there
+        filteredSpectrum[order,:] = median_filter(ss[order,:], size=5, mode='nearest')
+
+        #the absolute deviations between original and smoothed order (in principle, they are ~0 except for spikes)
+        dev=np.abs(ss[order,:]-filteredSpectrum[order,:])
+    
+        mad=np.median(np.abs(dev))
+
+        #the pixels sorted by how much they deviate from 0 (last elements are the most deviant ones)
+        worstPixels=np.argsort(dev)
+        # worstPixels=match[worstPixels]
+
+        cc=list()
+
+        #replacing the last elements with the median of the neighboring pixels
+        for b in worstPixels[-nspikes:]:
+                        
+            if dev[b]>10*mad:
+                window=np.where( (np.abs(ww[order,:]-ww[order,b])<.05) & (np.abs(ww[order,:]-ww[order,b])>0) )[0]
+         
+                cleanedSpectrum[order,b]=np.median(ss[order,window])
+                
+                cc.append(b)
+
+        correctedPixels.append(cc)
+        
+
+    if plot:
+
+        fig,axes=plt.subplots(nrows=4,figsize=(12,12),sharex=True)
+        
+        for match in range(ss.shape[0]):
+
+            axes[0].plot(ww[match,:],ss[match,:])
+            axes[1].plot(ww[match,:],filteredSpectrum[match,:])
+            axes[2].plot(ww[match,:],ss[match,:]-filteredSpectrum[match,:])
+            axes[3].plot(ww[match,:],cleanedSpectrum[match,:])
+
+            axes[2].scatter(ww[match,correctedPixels[match]],ss[match,correctedPixels[match]]-filteredSpectrum[match,correctedPixels[match]],color='black')
+        
+        axes[2].legend()
+        
+        axes[0].set_ylabel('Original sp')
+        axes[1].set_ylabel('Smoothed sp')
+        axes[2].set_ylabel('Original-Smoothed')
+        axes[3].set_ylabel('Cleaned')
+        
+        # axes[0].set_xlim([5576,5578])
+        # axes[0].set_xlim([5535,5536])
+    
+    return cleanedSpectrum
