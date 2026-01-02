@@ -120,6 +120,8 @@ def compute_transmission_mcmc(config_in, lines_label, reference='planetRF', pca_
     prior_dict = fit_pams.get('priors', {}) \
         or fit_pams.get('priors', {})
 
+    allow_emission = fit_pams.get('allow_emission', False)
+
     if len(lines_dict['lines']) < 2:
         if free_Rp is True and free_winds is True:
             model_case = 0
@@ -360,8 +362,18 @@ def compute_transmission_mcmc(config_in, lines_label, reference='planetRF', pca_
             Identification of the orders including the data points of interest
             """
 
-            identify_order = (wave_SRF > processed['common']['range'][0]) \
-                & (wave_SRF < processed['common']['range'][1])
+            #identify_order = (wave_SRF > processed['common']['range'][0]) \
+                #& (wave_SRF < processed['common']['range'][1])
+            try:
+                identify_order = load_from_cpickle(
+                    'global_common_selection',
+                    config_in['output'],
+                    lines_label
+                )
+            except FileNotFoundError:
+                identify_order = (wave_SRF > processed['common']['range'][0]) \
+                              & (wave_SRF < processed['common']['range'][1])
+
             order_selection = (np.sum(identify_order, axis=1) > 0)
             order_list = np.arange(0, observational_pams['n_orders'], dtype=np.int16)[order_selection]
             n_orders = len(order_list)
@@ -371,6 +383,16 @@ def compute_transmission_mcmc(config_in, lines_label, reference='planetRF', pca_
             processed['common']['order_list'] = order_list
             processed['common']['n_orders'] = n_orders
             processed['common']['size'] = np.sum(identify_order)
+            print("GLOBAL COMMON SIZE:", processed['common']['size'])
+
+            # SAVE GLOBAL COMMON SELECTION (first night only)
+            if night == list(night_dict.keys())[0]:
+                save_to_cpickle(
+                    'global_common_selection',
+                    processed['common']['selection'],
+                    config_in['output'],
+                    lines_label
+                )
 
             print('COMMON')
             print(np.shape(processed['common']['selection']))
@@ -505,7 +527,7 @@ def compute_transmission_mcmc(config_in, lines_label, reference='planetRF', pca_
                                                             preparation[obs]['deblazed'][order, selection],
                                                             2)
                         processed[obs]['continuum'][order, selection] = np.polynomial.chebyshev.chebval(
-                            preparation[obs]['wave_SRF'][order, selection], processed[obs]['norm_coeff_' + repr(order)])
+                            processed[obs]['wave_SRF'][order, selection], processed[obs]['norm_coeff_' + repr(order)])
                         processed[obs]['normalized'][order, selection] = preparation[obs]['deblazed'][order, selection] / \
                             processed[obs]['continuum'][order, selection]
                         processed[obs]['normalized_err'][order, selection] = preparation[obs]['deblazed_err'][order, selection] / \
@@ -684,7 +706,7 @@ def compute_transmission_mcmc(config_in, lines_label, reference='planetRF', pca_
 
         # getting fit parameters
         lines_center, pams_dict, pams_list, boundaries, theta_start = define_theta_array(
-            model_case, lines_dict, planet_dict, n_jitter)
+            model_case, lines_dict, planet_dict, n_jitter,allow_emission=allow_emission)
         ndim = len(theta_start)
         ngen = sampler_pams.get('n_gen', 64000)
         nwalkers_mult = sampler_pams.get('n_walkers_mult', 2)
@@ -976,7 +998,7 @@ def compute_transmission_mcmc(config_in, lines_label, reference='planetRF', pca_
     except FileNotFoundError:
 
         lines_center, pams_dict, pams_list, boundaries, theta_start = define_theta_array(
-            model_case, lines_dict, planet_dict, n_jitter)
+            model_case, lines_dict, planet_dict, n_jitter,allow_emission=allow_emission)
         ndim = len(theta_start)
 
         if pams_dict.get('rp_factor', False):
