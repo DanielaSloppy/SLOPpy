@@ -7,6 +7,8 @@ from SLOPpy.subroutines.common import *
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 
+GLOBAL_WAVE_REF = None
+
 def PEPSI_get_instrument_keywords():
 
     properties = {
@@ -101,10 +103,12 @@ def PEPSI_get_input_data(archive, file_rad, mask, fiber='A', skip_ccf=None, skip
     #input_dict['DPR_CATG'] = 'SCIENCE'
     #input_dict['DPR_TYPE'] = ?? 
 
-    input_dict['BERV'] = pepsi_fits[0].header['SSBVEL'] / 1000. # in km/s
-    input_dict['RVC'] = pepsi_fits[0].header['RADVEL'] / 1000.
+    #input_dict['BERV'] = pepsi_fits[0].header['SSBVEL'] / 1000. # in km/s
+    #input_dict['RVC'] = pepsi_fits[0].header['RADVEL'] / 1000.
     # RV of the star, it must be provided but it can be bypassed
-
+    input_dict['BERV'] = 0.0
+    input_dict['RVC'] = 0.0
+    
 
     input_dict['EXPTIME'] = pepsi_fits[0].header['EXPTIME']
 
@@ -151,14 +155,28 @@ def PEPSI_get_input_data(archive, file_rad, mask, fiber='A', skip_ccf=None, skip
     np.empty([n_orders, n_pixels])
     """
 
-
+    global GLOBAL_WAVE_REF
     wave_stellar =  pepsi_fits[1].data['Arg']
-    rvshift = pepsi_fits[0].header['SSTVEL'] / 1000.
+    #rvshift = pepsi_fits[0].header['SSTVEL'] / 1000.
+    if GLOBAL_WAVE_REF is None:
+        GLOBAL_WAVE_REF = wave_stellar.copy()
+        
+    wave_ref = GLOBAL_WAVE_REF
+    flux = pepsi_fits[1].data['Fun']
+    err = pepsi_fits[1].data['Var']
+    flux_i = np.interp(wave_ref, wave_stellar,flux)
+    err_i = np.interp(wave_ref, wave_stellar,err)
 
-    input_dict['wave_size'] = pepsi_fits[1].header['NAXIS2']
-    input_dict['wave'] = np.reshape(shift_wavelength_array(wave_stellar, rvshift), (1, input_dict['wave_size']))
-    input_dict['e2ds'] = np.reshape(pepsi_fits[1].data['Fun'], (1, input_dict['wave_size']))
-    input_dict['e2ds_err'] = np.reshape(pepsi_fits[1].data['Var'], (1, input_dict['wave_size']))
+    #input_dict['wave_size'] = pepsi_fits[1].header['NAXIS2']
+    #input_dict['wave'] = np.reshape(shift_wavelength_array(wave_stellar, rvshift), (1, input_dict['wave_size']))
+    #input_dict['wave'] = np.reshape(wave_stellar, (1, input_dict['wave_size']))
+    #input_dict['e2ds'] = np.reshape(pepsi_fits[1].data['Fun'], (1, input_dict['wave_size']))
+    #input_dict['e2ds_err'] = np.reshape(pepsi_fits[1].data['Var'], (1, input_dict['wave_size']))
+    
+    input_dict['wave'] = wave_ref.reshape(1,-1)
+    input_dict['wave_size'] = len(wave_ref)
+    input_dict['e2ds'] = flux_i.reshape(1,-1)
+    input_dict['e2ds_err'] = err_i.reshape(1,-1)
 
     """ PEPSI spectra are normalized to unity, but SLOPpy is expecting to have spectra in absolute counts
         absolute counts mean that a larger step size will have a larger number of counts given the same
