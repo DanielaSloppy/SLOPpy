@@ -5,6 +5,7 @@ from SLOPpy.subroutines.fit_subroutines import *
 from SLOPpy.subroutines.io_subroutines import *
 from SLOPpy.subroutines.plot_subroutines import *
 from SLOPpy.subroutines.shortcuts import *
+from SLOPpy.subroutines.kepler_exo import compute_planet_RV
 
 __all__ = ["prepare_datasets", "plot_dataset"]
 
@@ -47,9 +48,69 @@ def _check_coadd_in_shared_data(shared_data, wavelength_range):
 
 def prepare_datasets(config_in):
     """
-    FITS files, telluric list etc. are retrieved at the beginning and converted to a pickle object
-    to be processed to the next steps in the pipeline
-    In this way all the changes performed on the fits files are preserved (sky correction, differential correction)
+    Prepare observation datasets for the SLOPpy transmission spectroscopy pipeline.
+    
+    This function reads FITS files and associated data, processes them, and saves
+    them as pickle objects for subsequent pipeline steps. It handles multiple
+    observation nights and instruments, computing observational parameters including
+    radial velocity shifts for different reference frames.
+    
+    The function supports both circular and eccentric planetary orbits. For eccentric
+    orbits, the full Keplerian solution is used to compute planet radial velocities.
+    
+    Parameters
+    ----------
+    config_in : dict
+        Configuration dictionary containing all pipeline parameters, including:
+        - output: str - Output directory/prefix for pickle files
+        - nights: dict - Dictionary of observation nights with their parameters
+        - instruments: dict - Dictionary of instrument configurations
+        - planet: dict - Planetary parameters (period, RV_semiamplitude, etc.)
+        - star: dict - Stellar parameters
+        - master-out: dict - Master-out spectrum parameters
+        
+        For eccentric orbits, planet dict should include:
+        - orbit: 'eccentric' (default is 'circular')
+        - eccentricity: [value, error]
+        - omega: [value, error] in degrees
+    
+    Returns
+    -------
+    None
+        Results are saved to pickle files:
+        - lists: observation file lists
+        - input_dataset_fibA: fiber A spectral data
+        - input_dataset_s1d_fibA: fiber A 1D spectra
+        - calibration_fibA: calibration data for fiber A
+        - observational_pams: computed observational parameters including RV shifts
+        - shared: shared wavelength grid and coadd parameters
+        
+        Optional files (if fiber B data available):
+        - input_dataset_fibB: fiber B spectral data
+        - calibration_fibB: calibration data for fiber B
+    
+    Notes
+    -----
+    This function performs the following main tasks:
+    
+    1. Reads observation file lists for each night
+    2. Loads spectral data from FITS files
+    3. Handles negative flux values and estimates noise floor
+    4. Determines transit in/out observations based on transit duration
+    5. Computes RV shifts between reference frames:
+       - Observer Reference Frame (ORF)
+       - Solar Barycentric Reference Frame (BRF)
+       - Stellar Reference Frame (SRF)
+       - Planetary Reference Frame (PRF)
+    6. Sets up common wavelength grids for coadding spectra
+    
+    For existing datasets, the function loads previously computed parameters
+    and only updates the transit lists if necessary.
+    
+    See Also
+    --------
+    _get_observational_parameters : Compute RV shifts for each observation
+    compute_planet_RV : Compute planet RV for circular/eccentric orbits
     """
 
     """ config_dictionary: dictionary with all the configuration parameters from config_in
@@ -477,6 +538,79 @@ def _write_transit_list(observations_A, lists_dict, night_dict_key, planet_dict)
 
 
 def _get_observational_parameters(observations_A, lists_dict, night_dict_key, instrument_dict_key, star_dict, planet_dict):
+    """
+    Compute observational parameters including radial velocity shifts for each observation.
+    
+    This function calculates various RV shifts needed to transform spectra between
+    different reference frames (Observer RF, Solar Barycentric RF, Stellar RF, Planet RF).
+    It supports both circular and eccentric planetary orbits.
+    
+    Parameters
+    ----------
+    observations_A : dict
+        Dictionary containing observation data (BJD, RVC, BERV, AIRMASS, etc.)
+        for each observation in fiber A.
+    lists_dict : dict
+        Dictionary containing lists of observations categorized by transit phase
+        (transit_out, transit_in, transit_full, observations, etc.).
+    night_dict_key : dict
+        Configuration dictionary for the specific night, containing instrument,
+        mask, time_of_transit, and other night-specific parameters.
+    instrument_dict_key : dict
+        Configuration dictionary for the instrument, containing data_archive,
+        wavelength_rescaling, refraction parameters, etc.
+    star_dict : dict
+        Dictionary containing stellar parameters (mass, radius, vsini, etc.)
+        and optionally RV_gamma and RV_semiamplitude.
+    planet_dict : dict
+        Dictionary containing planetary parameters. Required keys:
+        - period : [value, error] - Orbital period [days]
+        - RV_semiamplitude : [value, error] - Planet's RV semi-amplitude [km/s]
+        - reference_time_of_transit : [value, error] - Transit center time [BJD]
+        
+        For eccentric orbits (orbit != 'circular'), also required:
+        - orbit : str - 'circular' or 'eccentric'
+        - eccentricity : [value, error] - Orbital eccentricity
+        - omega : [value, error] - Argument of periastron [degrees]
+        - reference_time : float (optional) - Reference epoch for ephemeris [BJD]
+    
+    Returns
+    -------
+    observational_parameters : dict
+        Dictionary containing computed parameters for each observation:
+        - BJD, mBJD, RVC, AIRMASS, BERV, EXPTIME: raw observation data
+        - RV_bjdshift: stellar RV shift due to orbital motion
+        - rv_shift_ORF2SRF: RV shift from Observer RF to Stellar RF
+        - rv_shift_ORF2BRF: RV shift from Observer RF to Barycentric RF
+        - rv_shift_ORF2PRF: RV shift from Observer RF to Planet RF
+        - rv_shift_SRF2PRF: RV shift from Stellar RF to Planet RF
+        - RV_planet: computed planet radial velocity at observation time
+        
+        Also includes global parameters:
+        - RV_star: dict with stellar RV solution (slope, intercept, systemic)
+        - BERV_avg: average barycentric Earth RV
+        - orbital_parameters: dict with eccentricity, omega_rad, reference_time
+    
+    Notes
+    -----
+    The RV shifts are computed as follows:
+    
+    1. rv_shift_ORF2SRF: Observer RF -> Stellar RF
+       = BERV - (RV_systemic + RV_bjdshift)
+       
+    2. rv_shift_ORF2PRF: Observer RF -> Planet RF  
+       = BERV - RV_systemic - RV_planet
+       
+    3. rv_shift_SRF2PRF: Stellar RF -> Planet RF
+       = RV_bjdshift - RV_planet
+    
+    For circular orbits: RV_planet = K_planet * sin(2*pi*(t-Tc)/P)
+    For eccentric orbits: Full Keplerian solution using compute_planet_RV()
+    
+    See Also
+    --------
+    compute_planet_RV : Compute planet RV for circular and eccentric orbits
+    """
 
     observational_parameters = {
         'instrument': night_dict_key['instrument'],
@@ -540,6 +674,31 @@ def _get_observational_parameters(observations_A, lists_dict, night_dict_key, in
 
     observational_parameters['RV_star']['RV_systemic'] = rvc_systemic
 
+    # ==========================================================================
+    # Extract orbital parameters for planetary RV computation
+    # Supports both circular (e=0) and eccentric (e>0) orbits
+    # ==========================================================================
+    if planet_dict.get('orbit', 'circular') == 'circular':
+        # Circular orbit: eccentricity is zero, omega is pi/2 by convention
+        eccentricity = 0.0
+        omega_rad = np.pi / 2.0
+        reference_time = planet_dict['reference_time_of_transit'][0]
+    else:
+        # Eccentric orbit: read eccentricity and omega from config
+        eccentricity = planet_dict['eccentricity'][0]
+        omega_rad = planet_dict['omega'][0] * np.pi / 180.0  # Convert degrees to radians
+        # Use reference_time if provided, otherwise fall back to transit time
+        reference_time = planet_dict.get('reference_time', 
+                                         planet_dict['reference_time_of_transit'][0])
+    
+    # Store orbital parameters in observational_parameters for later use
+    observational_parameters['orbital_parameters'] = {
+        'eccentricity': eccentricity,
+        'omega_rad': omega_rad,
+        'reference_time': reference_time,
+        'orbit_type': planet_dict.get('orbit', 'circular')
+    }
+
     for obs in lists_dict['observations']:
 
         if night_dict_key['use_rv_from_ccf']:
@@ -582,30 +741,57 @@ def _get_observational_parameters(observations_A, lists_dict, night_dict_key, in
         observational_parameters[obs]['rv_shift_ORF2SRF_res'] = \
             observational_parameters['BERV_avg'] - rvc_systemic
 
-        """ RV shift from the observer RF to the planet RF
-            STRONG ASSUMPTIONS:
-                - there is only the transiting planet in the system
-                - the planet has null eccentricity
-                - linear approximation or the orbit near the transit event
-
-            Computation is performed by moving to the Solar Barycenter, than to the Stellar System Barycenter
-            and finally onto the planet
-        """
+        # ======================================================================
+        # RV shift from the Observer RF to the Planet RF
+        # ======================================================================
+        #STRONG ASSUMPTIONS:
+        # - there is only the transiting planet in the system
+        # - linear approximation or the orbit near the transit event 
+        
+        # Computation is performed by:
+        # 1. Moving to the Solar System Barycenter (BERV correction)
+        # 2. Moving to the Stellar System Barycenter (subtracting systemic RV)
+        # 3. Moving onto the planet (subtracting planet's RV)
+        #
+        # For circular orbits: RV_planet = K_planet * sin(2*pi*t/P)
+        # For eccentric orbits: full Keplerian solution is used
+        # ======================================================================
+        
+        # Compute planet's radial velocity at the observation time
+        # Using the generalized Keplerian function that handles both circular
+        # and eccentric orbits
+        rv_planet = compute_planet_RV(
+            BJD=observational_parameters[obs]['BJD'],
+            time_of_transit=observational_parameters['time_of_transit'],
+            period=planet_dict['period'][0],
+            K_planet=planet_dict['RV_semiamplitude'][0],
+            e0=eccentricity,
+            omega0=omega_rad,
+            reference_time=reference_time,
+            output_unit='km/s'
+        )
+        
+        # Store the planet RV for reference
+        observational_parameters[obs]['RV_planet'] = rv_planet
+        
+        # RV shift from Observer RF to Planet RF
+        # BERV: Earth's barycentric velocity (Observer -> Solar Barycenter)
+        # rvc_systemic: Star's systemic velocity (Solar Barycenter -> Stellar Barycenter)
+        # rv_planet: Planet's velocity (Stellar Barycenter -> Planet RF)
         observational_parameters[obs]['rv_shift_ORF2PRF'] = \
             observational_parameters[obs]['BERV'] \
             - rvc_systemic \
-            - planet_dict['RV_semiamplitude'][0] \
-            * (observational_parameters[obs]['BJD'] - observational_parameters['time_of_transit']) \
-            / planet_dict['period'][0] * 2 * np.pi
+            - rv_planet
 
-        """ RV shift from Stellar Rest Frame to Planetary Rest Frame
-            We have to take into account the RV of star relatively to the Barycenter
-        """
+        # ======================================================================
+        # RV shift from Stellar Rest Frame to Planetary Rest Frame
+        # ======================================================================
+        # Takes into account the RV of star relatively to the Barycenter
+        # rvc_bjdshift: star's orbital motion around system barycenter
+        # rv_planet: planet's orbital motion
         observational_parameters[obs]['rv_shift_SRF2PRF'] = \
             + rvc_bjdshift \
-            - planet_dict['RV_semiamplitude'][0] \
-            * (observational_parameters[obs]['BJD'] - observational_parameters['time_of_transit']) \
-            / planet_dict['period'][0] * 2 * np.pi
+            - rv_planet
 
     observational_parameters['rv_shift_ORF2SRF_res'] = \
         observational_parameters['BERV_avg'] - rvc_systemic

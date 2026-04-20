@@ -8,6 +8,7 @@ from SLOPpy.subroutines.shortcuts import *
 from SLOPpy.subroutines.math_functions import *
 from SLOPpy.subroutines.plot_subroutines import *
 from SLOPpy.subroutines.bayesian_emcee import *
+from SLOPpy.subroutines.kepler_exo import compute_planet_RV
 # from SLOPpy.subroutines.rebin_subroutines import *
 from scipy.signal import savgol_filter
 
@@ -888,43 +889,63 @@ def compute_transmission_binned_mcmc(config_in, lines_label, reference='planetRF
             results_dict['results']['observational_pams'][obs] = {}
             results_dict['results_MAP']['observational_pams'][obs] = {}
 
-            """ RV shift from the observer RF to the planet RF
-                STRONG ASSUMPTIONS:
-                    - there is only the transiting planet in the system
-                    - the planet has null eccentricity
-                    - linear approximation or the orbit near the transit event
-
-                Computation is performed by moving to the Solar Barycenter, than to the Stellar System Barycenter
-                and finally onto the planet
-            """
+            # ================================================================
+            # RV shift from the Observer RF to the Planet RF
+            # Supports both circular and eccentric orbits using compute_planet_RV
+            #STRONG ASSUMPTIONS:
+            # - there is only the transiting planet in the system
+            # - linear approximation or the orbit near the transit event 
+            # ================================================================
+            # Extract orbital parameters (set during prepare_datasets)
+            orb_pams = observational_pams.get('orbital_parameters', {
+                'eccentricity': 0.0,
+                'omega_rad': np.pi / 2.0,
+                'reference_time': observational_pams['time_of_transit']
+            })
+            
+            # Compute planet RV using MCMC-derived K value (results)
+            rv_planet_results = compute_planet_RV(
+                BJD=observational_pams[obs]['BJD'],
+                time_of_transit=observational_pams['time_of_transit'],
+                period=planet_dict['period'][0],
+                K_planet=results_dict['results']['planet_K'],
+                e0=orb_pams['eccentricity'],
+                omega0=orb_pams['omega_rad'],
+                reference_time=orb_pams['reference_time'],
+                output_unit='km/s'
+            )
+            
+            # Compute planet RV using MCMC-derived K value (results_MAP)
+            rv_planet_map = compute_planet_RV(
+                BJD=observational_pams[obs]['BJD'],
+                time_of_transit=observational_pams['time_of_transit'],
+                period=planet_dict['period'][0],
+                K_planet=results_dict['results_MAP']['planet_K'],
+                e0=orb_pams['eccentricity'],
+                omega0=orb_pams['omega_rad'],
+                reference_time=orb_pams['reference_time'],
+                output_unit='km/s'
+            )
+            
+            # RV shift from Observer RF to Planet RF
             results_dict['results']['observational_pams'][obs]['rv_shift_ORF2PRF'] = \
                 observational_pams[obs]['BERV'] \
                 - observational_pams['RV_star']['RV_systemic'] \
-                - results_dict['results']['planet_K'] \
-                * (observational_pams[obs]['BJD'] - observational_pams['time_of_transit']) \
-                / planet_dict['period'][0] * 2 * np.pi
+                - rv_planet_results
 
             results_dict['results_MAP']['observational_pams'][obs]['rv_shift_ORF2PRF'] = \
                 observational_pams[obs]['BERV'] \
                 - observational_pams['RV_star']['RV_systemic'] \
-                - results_dict['results_MAP']['planet_K'] \
-                * (observational_pams[obs]['BJD'] - observational_pams['time_of_transit']) \
-                / planet_dict['period'][0] * 2 * np.pi
+                - rv_planet_map
 
-            """ RV shift from Stellar Rest Frame to Planetary Rest Frame
-                We have to take into account the RV of star relatively to the Barycenter
-            """
+            # RV shift from Stellar Rest Frame to Planetary Rest Frame
             results_dict['results']['observational_pams'][obs]['rv_shift_SRF2PRF'] = \
                 + observational_pams[obs]['RV_bjdshift'] \
-                - results_dict['results']['planet_K'] \
-                * (observational_pams[obs]['BJD'] - observational_pams['time_of_transit']) \
-                / planet_dict['period'][0] * 2 * np.pi
+                - rv_planet_results
 
             results_dict['results_MAP']['observational_pams'][obs]['rv_shift_SRF2PRF'] = \
                 + observational_pams[obs]['RV_bjdshift'] \
-                - results_dict['results_MAP']['planet_K'] \
-                * (observational_pams[obs]['BJD'] - observational_pams['time_of_transit']) \
-                / planet_dict['period'][0] * 2 * np.pi
+                - rv_planet_map
 
 
         results_dict['derived'] = {}

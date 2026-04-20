@@ -19,7 +19,8 @@ __all__ = ["kepler_K1",
            "kepler_Tc2phase_Tref",
            "kepler_phase2Tc_Tref",
            "get_planet_mass",
-           "kepler_true_anomaly_orbital_distance"]
+           "kepler_true_anomaly_orbital_distance",
+           "compute_planet_RV"]
 
 
 def kepler_E(M_in, ec):
@@ -305,3 +306,114 @@ def get_planet_mass(P, K, e, Mstar, approximation_limit=30.):
         print('Computing planetary mass under the approximation M_planet << M_star (threshold at {0:3.1f} Me)'.format(approximation_limit))
 
     return M_approx
+
+
+def compute_planet_RV(BJD, time_of_transit, period, K_planet, e0=0.0, omega0=np.pi/2., 
+                      reference_time=None, output_unit='km/s'):
+    """
+    Compute the radial velocity of a planet at given observation times.
+    
+    This function calculates the radial velocity (RV) of a planet orbiting a star,
+    supporting both circular (e=0) and eccentric (e>0) orbits. The RV is computed
+    using Keplerian orbital mechanics.
+    
+    For circular orbits (e0 < 1e-3), the function uses the simple sinusoidal 
+    approximation: RV_planet = -K_planet * sin(2*pi*t/P)
+    
+    For eccentric orbits, the full Keplerian solution is used, involving the
+    computation of eccentric anomaly and true anomaly.
+    
+    Parameters
+    ----------
+    BJD : float or array_like
+        Barycentric Julian Date(s) of the observation(s) [days].
+    time_of_transit : float
+        Time of transit center (Tc) [BJD]. This is the reference time for 
+        phase calculation.
+    period : float
+        Orbital period of the planet [days].
+    K_planet : float
+        Radial velocity semi-amplitude of the planet [km/s]. 
+        Note: this is the planet's semi-amplitude, not the star's.
+    e0 : float, optional
+        Orbital eccentricity of the planet. Default is 0.0 (circular orbit).
+        Values < 1e-3 are treated as circular orbits.
+    omega0 : float, optional
+        Argument of periastron [radians]. Default is pi/2.
+        For circular orbits, this value is ignored and set to pi/2 by convention.
+    reference_time : float, optional
+        Reference time for ephemeris calculation [BJD]. If None, time_of_transit
+        is used. This is relevant for eccentric orbits where the reference time
+        may differ from the transit time.
+    output_unit : str, optional
+        Output unit for the radial velocity. Options: 'km/s' (default) or 'm/s'.
+    
+    Returns
+    -------
+    rv_planet : float or ndarray
+        Radial velocity of the planet at the given observation times.
+        Positive values indicate the planet is moving away from the observer.
+        The unit depends on the output_unit parameter.
+    
+    Notes
+    -----
+    The radial velocity is computed in the reference frame where positive RV
+    means the object is moving away from the observer. For a planet, the RV
+    is opposite in sign to the star's RV due to the conservation of momentum.
+    
+    The function uses kepler_RV_T0P internally, which computes the stellar RV.
+    The planet's RV is obtained by using the planet's K amplitude with a sign
+    inversion relative to the star's motion.
+    
+    For transit spectroscopy, the planet's RV is used to shift spectra from
+    the observer's reference frame to the planet's rest frame.
+    
+    Examples
+    --------
+    >>> # Circular orbit
+    >>> rv = compute_planet_RV(2458000.5, 2458000.0, 3.5, 150.0)
+    
+    >>> # Eccentric orbit
+    >>> rv = compute_planet_RV(2458000.5, 2458000.0, 3.5, 150.0, 
+    ...                        e0=0.3, omega0=np.pi/4)
+    
+    See Also
+    --------
+    kepler_RV_T0P : Compute stellar radial velocity
+    kepler_true_anomaly_orbital_distance : Compute true anomaly and orbital distance
+    """
+    
+    # Set reference time if not provided
+    if reference_time is None:
+        reference_time = time_of_transit
+    
+    # Ensure arrays for consistent handling
+    BJD = np.atleast_1d(BJD)
+    
+    # Treat very small eccentricities as circular orbits
+    if np.abs(e0) < 1e-3:
+        # Circular orbit: use simple sinusoidal formula
+        # RV_planet = -K_planet * sin(2*pi * (t - Tc) / P)
+        # The negative sign accounts for the planet moving opposite to the star
+        phase = 2. * np.pi * (BJD - time_of_transit) / period
+        rv_planet = -K_planet * np.sin(phase)
+    else:
+        # Eccentric orbit: use full Keplerian solution
+        # First compute the phase offset from transit time to reference time
+        phase = kepler_Tc2phase_Tref(period, time_of_transit - reference_time, e0, omega0)
+        
+        # Compute the planet's RV using the Keplerian RV function
+        # Note: kepler_RV_T0P computes stellar-like RV, so we use -K_planet for planet
+        # The negative sign accounts for planet moving opposite to star
+        rv_planet = -kepler_RV_T0P(BJD - reference_time, phase, period, 
+                                   K_planet, e0, omega0)
+    
+    # Convert units if requested
+    if output_unit == 'm/s':
+        rv_planet = rv_planet * 1000.0  # km/s to m/s
+    
+    # Return scalar if input was scalar
+    if rv_planet.size == 1:
+        return float(rv_planet)
+    
+    return rv_planet
