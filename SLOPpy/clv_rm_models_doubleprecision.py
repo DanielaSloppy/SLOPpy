@@ -349,7 +349,7 @@ def compute_clv_rm_models_doubleprecision(config_in):
                 Tcent_Tref = 0.000
             else:
                 omega_rad = planet_dict['omega'][0] * deg2rad
-                Tref = planet_dict['reference_time']
+                Tref = planet_dict.get('reference_time', planet_dict['reference_time_of_transit'][0])
                 Tcent_Tref = planet_dict['reference_time_of_transit'][0] - Tref
                 eccentricity = planet_dict['eccentricity'][0]
             inclination_rad = planet_dict['inclination'][0] * deg2rad
