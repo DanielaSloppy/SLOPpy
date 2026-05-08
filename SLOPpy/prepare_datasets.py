@@ -236,6 +236,13 @@ def prepare_datasets(config_in):
             for key_name, key_val in observational_parameters['RV_star'].items():
                 print("   RV star  {0:s}: {1}".format(key_name, key_val))
             print()
+
+            # Ensure shared_data wavelength range is populated even when
+            # input_dataset_fibA is already cached (shared.p may be missing).
+            if not loaded_shared_data:
+                _obs_tmp = load_from_cpickle('input_dataset_fibA', config_in['output'], night)
+                shared_data = _check_coadd_in_shared_data(
+                    shared_data, _obs_tmp['coadd']['wavelength_range'])
             continue
 
         except ValueError:

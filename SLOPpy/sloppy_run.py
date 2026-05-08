@@ -87,6 +87,7 @@ def sloppy_run(file_conf=None ):
     pipeline_common_routines['clv_rm_models'] = SLOPpy.compute_clv_rm_models
     pipeline_common_routines['clv_rm_models_doubleprecision'] = SLOPpy.compute_clv_rm_models_doubleprecision
     pipeline_common_routines['transmission_spectrum_preparation'] = SLOPpy.compute_transmission_spectrum_preparation
+    pipeline_common_routines['wiggle_correction'] = SLOPpy.compute_wiggle_correction
 
     pipeline_common_routines['write_output_transmission'] = SLOPpy.write_output_transmission
     pipeline_common_routines['write_output_transmission_stellarRF'] = SLOPpy.write_output_transmission_stellarRF
@@ -263,6 +264,7 @@ def sloppy_run(file_conf=None ):
 
     # ! NEW
     plot_routines['transmission_spectrum_preparation'] = SLOPpy.plot_transmission_spectrum_preparation
+    plot_routines['wiggle_correction'] = SLOPpy.plot_wiggle_correction
 
     """
     plot_routines['transmission_spectrum_planetRF'] = SLOPpy.plot_transmission_spectrum_planetRF

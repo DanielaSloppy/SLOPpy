@@ -270,8 +270,10 @@ def compute_transmission_spectrum(config_in, lines_label, reference='planetRF', 
                                     preserve_flux=False,
                                     is_error=True)
                 else:
-                    preserve_flux = input_data[obs].get('absolute_flux', True)
-
+                    # preserve_flux is intentionally forced False for the ratio:
+                    # ratio is dimensionless, and preserve_flux=True embeds the
+                    # variable ESPRESSO pixel width into the rebinned ratio,
+                    # producing a spurious ~10% slope that corrupts normalization.
                     transmission[obs]['rebinned'] = \
                         rebin_2d_to_1d(input_data[obs]['wave'],
                                     input_data[obs]['step'],
@@ -279,7 +281,7 @@ def compute_transmission_spectrum(config_in, lines_label, reference='planetRF', 
                                     calib_data['blaze'],
                                     transmission['wave'],
                                     transmission['step'],
-                                    preserve_flux=preserve_flux,
+                                    preserve_flux=False,
                                     rv_shift=rv_shift)
 
                     transmission[obs]['rebinned_err'] = \
@@ -289,7 +291,7 @@ def compute_transmission_spectrum(config_in, lines_label, reference='planetRF', 
                                     calib_data['blaze'],
                                     transmission['wave'],
                                     transmission['step'],
-                                    preserve_flux=preserve_flux,
+                                    preserve_flux=False,
                                     rv_shift=rv_shift,
                                     is_error=True)
 

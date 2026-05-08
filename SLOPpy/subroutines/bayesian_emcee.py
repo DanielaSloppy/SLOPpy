@@ -422,8 +422,11 @@ def GelmanRubin_v2(sampler_chain):
 def compute_value_sigma(samples):
     if np.size(np.shape(samples)) == 1:
         sample_med = np.zeros(3)
-        #sample_tmp = np.percentile(samples, [15.865, 50, 84.135], axis=0)
-        sample_tmp = np.percentile(samples[np.isfinite(samples)], [15.865, 50, 84.135], axis=0)
+        finite_samples = samples[np.isfinite(samples)]
+        if len(finite_samples) == 0:
+            sample_med[:] = np.nan
+            return sample_med
+        sample_tmp = np.percentile(finite_samples, [15.865, 50, 84.135], axis=0)
 
         sample_med[0] = sample_tmp[1]
         sample_med[1] = sample_tmp[2] - sample_tmp[1]

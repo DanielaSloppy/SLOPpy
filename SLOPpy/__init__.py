@@ -21,6 +21,7 @@ from SLOPpy.telluric_observerRF_skycalc import *
 from SLOPpy.interstellar_lines import *
 from SLOPpy.master_out import *
 from SLOPpy.transmission_spectrum_preparation import *
+from SLOPpy.wiggle_correction import *
 from SLOPpy.transmission_spectrum import *
 from SLOPpy.transmission_spectrum_average import *
 from SLOPpy.transmission_spectrum_shortcuts import *

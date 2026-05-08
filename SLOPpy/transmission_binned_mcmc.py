@@ -412,6 +412,11 @@ def compute_transmission_binned_mcmc(config_in, lines_label, reference='planetRF
                     blaze = calib_data['blaze']
 
                 processed[obs] = {}
+                # The ratio is a dimensionless quantity, so preserve_flux=False is
+                # correct here regardless of the absolute_flux flag. Using
+                # preserve_flux=True embeds the variable pixel-size (step_in) into the
+                # rebinned ratio, producing a ~10-28% spurious slope that corrupts the
+                # polynomial continuum normalization.
                 processed[obs]['rebinned'] = \
                     rebin_2d_to_1d(input_data[obs]['wave'],
                                     input_data[obs]['step'],
@@ -420,7 +425,7 @@ def compute_transmission_binned_mcmc(config_in, lines_label, reference='planetRF
                                     processed['common']['wave'],
                                     processed['common']['step'],
                                     rv_shift=observational_pams[obs]['rv_shift_ORF2SRF'],
-                                    preserve_flux=preserve_flux)
+                                    preserve_flux=False)
                 processed[obs]['rebinned_err'] = \
                     rebin_2d_to_1d(input_data[obs]['wave'],
                                     input_data[obs]['step'],
@@ -429,7 +434,7 @@ def compute_transmission_binned_mcmc(config_in, lines_label, reference='planetRF
                                     processed['common']['wave'],
                                     processed['common']['step'],
                                     rv_shift=observational_pams[obs]['rv_shift_ORF2SRF'],
-                                    preserve_flux=preserve_flux,
+                                    preserve_flux=False,
                                     is_error=True)
 
                 processed[obs]['rebinned_extended'] = \
@@ -440,7 +445,7 @@ def compute_transmission_binned_mcmc(config_in, lines_label, reference='planetRF
                                     processed['common_extended']['wave'],
                                     processed['common_extended']['step'],
                                     rv_shift=observational_pams[obs]['rv_shift_ORF2SRF'],
-                                    preserve_flux=preserve_flux)
+                                    preserve_flux=False)
 
 
 
