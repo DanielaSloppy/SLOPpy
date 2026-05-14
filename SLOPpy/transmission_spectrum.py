@@ -270,10 +270,16 @@ def compute_transmission_spectrum(config_in, lines_label, reference='planetRF', 
                                     preserve_flux=False,
                                     is_error=True)
                 else:
-                    # preserve_flux is intentionally forced False for the ratio:
-                    # ratio is dimensionless, and preserve_flux=True embeds the
-                    # variable ESPRESSO pixel width into the rebinned ratio,
-                    # producing a spurious ~10% slope that corrupts normalization.
+                    # For the ratio (dimensionless), preserve_flux=False is correct
+                    # when ESPRESSO wiggle correction is active (variable pixel step
+                    # ~28% per order). For other instruments (HARPS-N etc.) with more
+                    # uniform sampling, use the original absolute_flux-based behaviour
+                    # to avoid a spurious slope in the continuum normalization.
+                    if preparation.get('wiggle_corrected', False):
+                        _pf_ratio = False
+                    else:
+                        _pf_ratio = input_data[obs].get('absolute_flux', True)
+
                     transmission[obs]['rebinned'] = \
                         rebin_2d_to_1d(input_data[obs]['wave'],
                                     input_data[obs]['step'],
@@ -281,7 +287,7 @@ def compute_transmission_spectrum(config_in, lines_label, reference='planetRF', 
                                     calib_data['blaze'],
                                     transmission['wave'],
                                     transmission['step'],
-                                    preserve_flux=False,
+                                    preserve_flux=_pf_ratio,
                                     rv_shift=rv_shift)
 
                     transmission[obs]['rebinned_err'] = \
@@ -291,7 +297,7 @@ def compute_transmission_spectrum(config_in, lines_label, reference='planetRF', 
                                     calib_data['blaze'],
                                     transmission['wave'],
                                     transmission['step'],
-                                    preserve_flux=False,
+                                    preserve_flux=_pf_ratio,
                                     rv_shift=rv_shift,
                                     is_error=True)
 
