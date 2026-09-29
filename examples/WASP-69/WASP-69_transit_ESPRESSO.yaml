@@ -1,0 +1,247 @@
+# ============================================================
+# SLOPpy configuration file – WASP-69b transit with ESPRESSO
+# ============================================================
+# This example covers a single night observed with ESPRESSO at
+# the VLT (UT1), targeting the Na I D doublet in WASP-69b.
+#
+# Key ESPRESSO-specific features demonstrated here:
+#   • Each S2D file contains two interleaved spectra ("odd" and
+#     "even" slices of the echelle format).  Treat them as two
+#     independent nights labelled <date>_odd and <date>_even.
+#   • ESO DRS already delivers sky-subtracted, deblazed and
+#     telluric-corrected products; use them directly via the
+#     use_ESO_* keywords.
+#   • The wiggle_correction pipeline step removes the low-
+#     frequency sinusoidal/oscillatory baseline artefacts that
+#     are characteristic of ESPRESSO spectra before CLV+RM
+#     correction and the MCMC fit.
+# ============================================================
+
+Name: WASP-69
+
+# ----------------------------------------------------------
+# Pipeline steps (executed in order)
+# ----------------------------------------------------------
+pipeline:
+  - differential_refraction          # correct chromatic refraction
+  # - telluric_template              # optional: template-based telluric
+  # - telluric_molecfit_preparation  # optional: Molecfit telluric
+  # - telluric_molecfit_coadd
+  - master_out                       # build out-of-transit master spectrum
+  # - clv_rm_models_lines            # pre-compute CLV+RM model
+  - transmission_spectrum_preparation  # compute obs/master_out ratio
+  - wiggle_correction                  # NEW: remove ESPRESSO wiggles
+  #- transmission_binned_mcmc           # MCMC fit on binned spectrum
+  #- transmission_spectrum              # final 1-D transmission spectrum
+  #- transmission_spectrum_average      # average over nights
+
+plots:
+  # Uncomment the steps you want to visualise
+  # - differential_refraction
+  # - master_out
+  - wiggle_correction        # diagnostic: original vs. corrected per order
+  # - transmission_spectrum_preparation
+  # - transmission_spectrum_planetRF
+
+# ----------------------------------------------------------
+# Night definitions
+# ----------------------------------------------------------
+nights:
+  # ---- odd spectral slice (rows 1,3,5,… of the S2D) ----
+  '2022-07-06_odd':
+    night: '2022-07-06'
+    instrument: ESPRESSO
+    telescope: UT1                    # UT1..UT4 – required for header keywords
+
+    # ESPRESSO S2D files contain two interleaved spectra per order.
+    # Use spectral_selection: odd | even to pick one slice at a time.
+    spectral_selection: odd
+
+    # --- ESO DRS product selection ---
+    # use_ESO_telluric_correction: True  → read *_S2D_TELL_CORR_A.fits
+    # use_ESO_sky_correction:      True  → sky subtraction already applied
+    # use_ESO_deblazed:            True  → read deblazed (S2D, not S2D_BLAZE)
+    #
+    # NOTE: the TELL_SPECTRUM files carry the header keyword
+    # WAVELENGTH_AIR_BARY but the wavelength axis is actually in the
+    # observer rest frame.  SLOPpy accounts for this automatically.
+    use_ESO_telluric_correction: True
+    use_ESO_sky_correction: True
+    use_ESO_deblazed: True
+
+    # apply_ESO_telluric_correction: False   # set True only when you want
+    #   to apply the correction on non-sky-subtracted files (see README)
+
+    # Observation lists (one filename root per line, no extension)
+    all:         2022-07-06_all.list
+    in_transit:  2022-07-06_transit_in.list
+    out_transit: 2022-07-06_transit_out.list
+    telluric_list: 2022-07-06_transit_out.list
+    full_transit: 2022-07-06_transit_full.list
+
+    time_of_transit: 2459767.8290298004   # BJD_TDB of mid-transit
+
+    # spline_residuals: set True to clean time-correlated residuals
+    # (e.g. telluric) via a UnivariateSpline in time, per pixel.
+    spline_residuals: False
+
+  # ---- even spectral slice (rows 0,2,4,… of the S2D) ----
+  '2022-07-06_even':
+    night: '2022-07-06'
+    instrument: ESPRESSO
+    telescope: UT1
+    spectral_selection: even
+    use_ESO_telluric_correction: True
+    use_ESO_sky_correction: True
+    use_ESO_deblazed: True
+    all:         2022-07-06_all.list
+    in_transit:  2022-07-06_transit_in.list
+    out_transit: 2022-07-06_transit_out.list
+    telluric_list: 2022-07-06_transit_out.list
+    full_transit: 2022-07-06_transit_full.list
+    time_of_transit: 2459767.8290298004
+    spline_residuals: False
+
+# ----------------------------------------------------------
+# Master out-of-transit spectrum
+# ----------------------------------------------------------
+master-out:
+  wavelength_range: [5880.000, 5906.000]   # Å
+  wavelength_step:  0.010000000            # Å/pixel
+  binning_factor: 20
+  use_smoothed: False
+  use_composite: False
+  boxcar_smoothing: 3
+
+# ----------------------------------------------------------
+# Instrument-specific settings
+# ----------------------------------------------------------
+instruments:
+  ESPRESSO:
+    data_archive: ../archive/
+    # Use red_ccd (orders 47-84) when targeting Na D (~5890 Å).
+    # Use blue_ccd for bluer lines, full_ccd for the whole spectrum.
+    orders: red_ccd
+    mask: K6
+    wavelength_rescaling: [5869.0, 5877.0]  # continuum region for re-scaling
+    refraction:
+      method: polynomial
+      fit_order: 3
+      fit_iters: 3
+      fit_sigma: 5
+    telluric_template:
+      file: LaSilla_skycal_sample.dat
+      fit_range: [5899.75, 5900.25]   # must contain a telluric line, no stellar line
+    resolution: 140000                # ESPRESSO HR mode
+
+# ----------------------------------------------------------
+# Wiggle correction (ESPRESSO-specific artefact)
+# ----------------------------------------------------------
+# This step runs AFTER transmission_spectrum_preparation and
+# BEFORE transmission_binned_mcmc.
+#
+# Strategy: for each spectral order, all individual transmission
+# ratios are stacked into a weighted mean.  The planet signal
+# cancels out (different RV per epoch); the instrumental wiggle
+# (coherent in time) survives.  A spline is fitted to this high-
+# S/N mean and the same continuum divisor is applied to every
+# individual exposure in the matrix.  This corrects the wiggle
+# without degrading the per-epoch data needed by the MCMC.
+#
+# knot_spacing: spacing [Å] between interior LSQ-spline knots.
+#   Larger values → smoother; smaller → more flexible.
+#   Default 2.0 Å captures periods > 4 Å (well above Na D width).
+# ----------------------------------------------------------
+wiggle_correction:
+  method: spline        # only 'spline' is currently implemented
+  degree: 3             # cubic spline
+  knot_spacing: 10.0    # Å between LSQ-spline interior knots
+                        # use ~1/3 of the expected wiggle period (~40 Å for ESPRESSO Na D)
+  mask_regions:         # wavelength intervals [Å] excluded from the fit
+    - [5889.0, 5891.0]  # Na I D2
+    - [5895.0, 5897.0]  # Na I D1
+
+# ----------------------------------------------------------
+# Spectral lines of interest
+# ----------------------------------------------------------
+spectral_lines:
+  Na_doublet:
+    range: [5870.0, 5915.0]   # wavelength window for the transmission spectrum
+    clv_rm_correction: True
+    passbands:                 # width (Å) of each passband around each line
+      c075: 0.750
+      c150: 1.500
+      c300: 3.000
+    lines:
+      D1: 5895.924
+      D2: 5889.951
+    continuum:
+      B: [5872.89, 5884.89]
+      R: [5900.89, 5912.89]
+    normalization:
+      model_poly_degree: 1
+      spectra_poly_degree: 1
+      lower_threshold: 0.95
+    fit_parameters:
+      range: [5886.0, 5900.0]
+      bin_step: 0.025
+      free_Rp: True
+      free_winds: True
+      shared_winds: True
+      shared_fwhm: True
+      allow_emission: True
+      priors:
+        planet_K:  [130.0, 10.0]
+        planet_R:  [1.00,  0.05]
+    sampler_parameters:
+      n_steps: 50000
+      n_burnin: 25000
+      n_walkers: 26
+
+# ----------------------------------------------------------
+# CLV + RM correction
+# ----------------------------------------------------------
+CLV_RM_correction:
+  synthesis_files: ./additional_files/WASP-69_5840_5920_NLTE
+  n_gridpoints: 101
+  time_step: 300.
+  rebinning_step: 0.025
+  continuum_range: [5874.5, 5875.5]
+  radius_factor: [0.5, 2.5, 0.1]
+
+# ----------------------------------------------------------
+# Molecfit (optional telluric correction with ESO tool)
+# ----------------------------------------------------------
+molecfit:
+  esorex_exec: esorex
+  aer_version: '3.8.1.2'
+  installation_path: /Applications/molecfit/bin/
+  include_telluric: ./additional_files/include_regions_ORF.dat
+  include_stellar: ./additional_files/include_regions_ORF.dat
+  exptime_coadd: 2600
+  rebinning_step: 0.010
+
+# ----------------------------------------------------------
+# Planetary and stellar parameters – WASP-69b
+# ----------------------------------------------------------
+planet:
+  orbit: circular
+  period:                    [3.8681382,   0.0000017]
+  RV_semiamplitude:          [127.034,     10.0]
+  total_transit_duration:    [0.0929,      0.0012]
+  full_transit_duration:     [0.0543,      0.0012]
+  inclination:               [86.71,       0.20]
+  reference_time_of_transit: [2455748.83344, 0.00018]
+  radius_ratio:              [0.134,       0.008]
+  semimajor_axis_ratio:      [12.00,       0.46]
+  impact_parameter:          [0.686,       0.023]
+  mass:                      [0.260,       0.017]
+
+star:
+  mass:              [0.826,  0.029]
+  radius:            [0.813,  0.028]
+  alpha:             [0,      0.093]
+  lambda:            [0.4,    2.0]
+  vsini:             [2.20,   0.40]
+  inclination:       [90,     8.00]
+  RV_semiamplitude:  [0.0381, 0.0024]

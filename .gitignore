@@ -50,3 +50,5 @@ workspace.code-workspace
 dist/
 sloppy.egg-info/
 sloppy_package.egg-info/
+CLAUDE.md
+TODO_IMPROVEMENTS.md
