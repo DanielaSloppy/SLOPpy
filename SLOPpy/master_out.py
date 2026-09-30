@@ -39,8 +39,8 @@ def compute_master_out(config_in):
 
         try:
             master_out = load_from_cpickle('master_out', config_in['output'], night)
-            wmean_wflux[phase] += master_out['rescaled'] / master_out['rescaled_err'] ** 2
-            wmean_weight[phase] += 1. // master_out['rescaled_err'] ** 2
+            wmean_wflux[phase] += master_out['SRF']['rescaled'] / master_out['SRF']['rescaled_err'] ** 2
+            wmean_weight[phase] += 1. / master_out['SRF']['rescaled_err'] ** 2
             print("{0:45s} Night:{1:15s}   {2:s}".format(subroutine_name, night, 'Retrieved'))
             continue
         except:
@@ -167,7 +167,7 @@ def compute_master_out(config_in):
                            is_error=True)
 
         wmean_wflux[phase] += master_out['SRF']['rescaled']/master_out['SRF']['rescaled_err']**2
-        wmean_weight[phase] += 1.//master_out['SRF']['rescaled_err']**2
+        wmean_weight[phase] += 1./master_out['SRF']['rescaled_err']**2
 
 
 
