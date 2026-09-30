@@ -55,5 +55,8 @@ copy_from_instrument = [
     'spectral_selection',
     'apply_ESO_telluric_correction',
     'use_ESO_sky_correction',
-    'use_ESO_deblazed'
+    'use_ESO_deblazed',
+    'savgol_window',
+    'savgol_polyorder',
+    'savgol_window_kms'
 ]

@@ -48,7 +48,7 @@ def write_output_transmission(config_in, reference='planetRF', night_input='', p
     # compute_transmission_spectrum_preparation(config_in)
     pca_parameters = from_config_get_pca_parameters(config_in)
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
     ### transmission_dict = from_config_get_transmission(config_in)
     shared_data = load_from_cpickle('shared', config_in['output'])
 
@@ -549,14 +549,15 @@ def write_output_transmission(config_in, reference='planetRF', night_input='', p
 
 def plot_output_transmission(config_in, night_input='', results_input='', reference='planetRF', pca_iteration=-1):
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
 
     fullspectrum_dict = from_config_get_fullspectrum_parameters(config_in)
 
     if night_input == '':
         night_list = night_dict
     else:
-        night_list = np.atleast_1d(night_input)
+        """ nights with phase: eclipse are skipped """
+        night_list = [night for night in np.atleast_1d(night_input) if night in night_dict]
 
     if results_input == '':
         results_list = ['user']

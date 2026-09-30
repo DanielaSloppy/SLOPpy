@@ -87,12 +87,18 @@ def sloppy_run(file_conf=None ):
     pipeline_common_routines['clv_rm_models'] = SLOPpy.compute_clv_rm_models
     pipeline_common_routines['clv_rm_models_doubleprecision'] = SLOPpy.compute_clv_rm_models_doubleprecision
     pipeline_common_routines['transmission_spectrum_preparation'] = SLOPpy.compute_transmission_spectrum_preparation
+    pipeline_common_routines['emission_spectrum_preparation'] = SLOPpy.compute_emission_spectrum_preparation
     pipeline_common_routines['wiggle_correction'] = SLOPpy.compute_wiggle_correction
 
     pipeline_common_routines['write_output_transmission'] = SLOPpy.write_output_transmission
     pipeline_common_routines['write_output_transmission_stellarRF'] = SLOPpy.write_output_transmission_stellarRF
     pipeline_common_routines['write_output_transmission_planetRF'] = SLOPpy.write_output_transmission_planetRF
     pipeline_common_routines['write_output_transmission_observerRF'] = SLOPpy.write_output_transmission_observerRF
+
+    pipeline_common_routines['write_output_emission'] = SLOPpy.write_output_emission
+    pipeline_common_routines['write_output_emission_stellarRF'] = SLOPpy.write_output_emission_stellarRF
+    pipeline_common_routines['write_output_emission_planetRF'] = SLOPpy.write_output_emission_planetRF
+    pipeline_common_routines['write_output_emission_observerRF'] = SLOPpy.write_output_emission_observerRF
 
 
     """ Legacy routines for testing purposes """
@@ -153,6 +159,16 @@ def sloppy_run(file_conf=None ):
     pipeline_lines_routines['transmission_spectrum_average_observerRF'] = SLOPpy.compute_transmission_spectrum_average_observerRF
     pipeline_lines_routines['transmission_spectrum_average_stellarRF'] = SLOPpy.compute_transmission_spectrum_average_stellarRF
     pipeline_lines_routines['transmission_spectrum_average'] = SLOPpy.compute_transmission_spectrum_average
+
+    pipeline_lines_routines['emission_spectrum_planetRF'] = SLOPpy.compute_emission_spectrum_planetRF
+    pipeline_lines_routines['emission_spectrum_observerRF'] = SLOPpy.compute_emission_spectrum_observerRF
+    pipeline_lines_routines['emission_spectrum_stellarRF'] = SLOPpy.compute_emission_spectrum_stellarRF
+    pipeline_lines_routines['emission_spectrum'] = SLOPpy.compute_emission_spectrum
+
+    pipeline_lines_routines['emission_spectrum_average_planetRF'] = SLOPpy.compute_emission_spectrum_average_planetRF
+    pipeline_lines_routines['emission_spectrum_average_observerRF'] = SLOPpy.compute_emission_spectrum_average_observerRF
+    pipeline_lines_routines['emission_spectrum_average_stellarRF'] = SLOPpy.compute_emission_spectrum_average_stellarRF
+    pipeline_lines_routines['emission_spectrum_average'] = SLOPpy.compute_emission_spectrum_average
 
     pipeline_lines_routines['transmission_spectrum_average_planetRF_iterative'] = SLOPpy.compute_transmission_spectrum_average_planetRF
     pipeline_lines_routines['transmission_spectrum_average_observerRF_iterative'] = SLOPpy.compute_transmission_spectrum_average_observerRF
@@ -264,6 +280,11 @@ def sloppy_run(file_conf=None ):
 
     # ! NEW
     plot_routines['transmission_spectrum_preparation'] = SLOPpy.plot_transmission_spectrum_preparation
+    plot_routines['emission_spectrum_preparation'] = SLOPpy.plot_emission_spectrum_preparation
+    plot_routines['write_output_emission'] = SLOPpy.plot_output_emission
+    plot_routines['write_output_emission_stellarRF'] = SLOPpy.plot_output_emission_stellarRF
+    plot_routines['write_output_emission_planetRF'] = SLOPpy.plot_output_emission_planetRF
+    plot_routines['write_output_emission_observerRF'] = SLOPpy.plot_output_emission_observerRF
     plot_routines['wiggle_correction'] = SLOPpy.plot_wiggle_correction
 
     """
@@ -313,6 +334,11 @@ def sloppy_run(file_conf=None ):
     plot_lines_routines['transmission_spectrum_stellarRF_iterative'] = SLOPpy.plot_transmission_spectrum_stellarRF_iterative
     plot_lines_routines['transmission_spectrum_iterative'] = SLOPpy.plot_transmission_spectrum_iterative
 
+    plot_lines_routines['emission_spectrum_planetRF'] = SLOPpy.plot_emission_spectrum_planetRF
+    plot_lines_routines['emission_spectrum_observerRF'] = SLOPpy.plot_emission_spectrum_observerRF
+    plot_lines_routines['emission_spectrum_stellarRF'] = SLOPpy.plot_emission_spectrum_stellarRF
+    plot_lines_routines['emission_spectrum'] = SLOPpy.plot_emission_spectrum
+
 
 
 
@@ -330,6 +356,11 @@ def sloppy_run(file_conf=None ):
     plot_lines_average_routines['transmission_spectrum_average_observerRF'] = SLOPpy.plot_transmission_spectrum_average_observerRF
     plot_lines_average_routines['transmission_spectrum_average_stellarRF'] = SLOPpy.plot_transmission_spectrum_average_stellarRF
     plot_lines_average_routines['transmission_spectrum_average'] = SLOPpy.plot_transmission_spectrum_average
+
+    plot_lines_average_routines['emission_spectrum_average_planetRF'] = SLOPpy.plot_emission_spectrum_average_planetRF
+    plot_lines_average_routines['emission_spectrum_average_observerRF'] = SLOPpy.plot_emission_spectrum_average_observerRF
+    plot_lines_average_routines['emission_spectrum_average_stellarRF'] = SLOPpy.plot_emission_spectrum_average_stellarRF
+    plot_lines_average_routines['emission_spectrum_average'] = SLOPpy.plot_emission_spectrum_average
 
 
     """

@@ -357,7 +357,7 @@ def compute_wiggle_correction(config_in):
             - [5895.0, 5897.0]     # Na I D1
     """
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
 
     wiggle_cfg = config_in.get('wiggle_correction', None)
     if wiggle_cfg is None:
@@ -467,7 +467,7 @@ def plot_wiggle_correction(config_in, night_input=''):
     - the corrected spectrum
     """
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
 
     if night_input == '':
         night_list = night_dict

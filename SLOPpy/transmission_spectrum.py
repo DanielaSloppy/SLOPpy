@@ -25,7 +25,7 @@ def compute_transmission_spectrum(config_in, lines_label, reference='planetRF', 
                             'mcmc_global_MAP']
     # compute_transmission_spectrum_preparation(config_in)
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
     ### transmission_dict = from_config_get_transmission(config_in)
     pca_parameters = from_config_get_pca_parameters(config_in)
 
@@ -603,12 +603,13 @@ def plot_transmission_spectrum(config_in, lines_label, night_input='', results_i
     spectral_lines = from_config_get_spectral_lines(config_in)
     lines_dict = spectral_lines[lines_label]
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
 
     if night_input == '':
         night_list = night_dict
     else:
-        night_list = np.atleast_1d(night_input)
+        """ nights with phase: eclipse are skipped """
+        night_list = [night for night in np.atleast_1d(night_input) if night in night_dict]
 
     if results_input == '':
         results_list = ['user',

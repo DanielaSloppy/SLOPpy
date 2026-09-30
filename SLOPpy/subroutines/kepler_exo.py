@@ -20,7 +20,9 @@ __all__ = ["kepler_K1",
            "kepler_phase2Tc_Tref",
            "get_planet_mass",
            "kepler_true_anomaly_orbital_distance",
-           "compute_planet_RV"]
+           "compute_planet_RV",
+           "kepler_eclipse_time_offset",
+           "kepler_eclipse_duration_ratio"]
 
 
 def kepler_E(M_in, ec):
@@ -417,3 +419,42 @@ def compute_planet_RV(BJD, time_of_transit, period, K_planet, e0=0.0, omega0=np.
         return float(rv_planet)
     
     return rv_planet
+
+
+def _kepler_mean_anomaly_from_true(TrAn, e0):
+    EccAn = 2. * np.arctan2(np.sqrt(1.0 - e0) * np.sin(TrAn / 2.0),
+                            np.sqrt(1.0 + e0) * np.cos(TrAn / 2.0))
+    return EccAn - e0 * np.sin(EccAn)
+
+
+def kepler_eclipse_time_offset(Period, e0=0.0, omega0=np.pi/2.):
+    """
+    Time interval between the transit and the following secondary eclipse.
+
+    The transit occurs at true anomaly pi/2 - omega0 and the secondary eclipse at
+    3pi/2 - omega0, the same convention used by kepler_Tc2phase_Tref.
+    The effect of the orbital inclination is neglected.
+    :param Period: orbital period [days]
+    :param e0: orbital eccentricity
+    :param omega0: argument of periastron [radians]
+    :return: time of secondary eclipse - time of transit, between 0 and Period [days].
+        Period/2 for circular orbits
+    """
+    if np.abs(e0) < 1e-3:
+        return Period / 2.
+
+    MeAn_transit = _kepler_mean_anomaly_from_true(np.pi / 2. - omega0, e0)
+    MeAn_eclipse = _kepler_mean_anomaly_from_true(3. * np.pi / 2. - omega0, e0)
+    return ((MeAn_eclipse - MeAn_transit) % (2 * np.pi)) / (2 * np.pi) * Period
+
+
+def kepler_eclipse_duration_ratio(e0=0.0, omega0=np.pi/2.):
+    """
+    Approximate ratio between the durations of the secondary eclipse and of the transit,
+    (1 + e sin omega) / (1 - e sin omega), from Winn (2010), Eq. 16
+    :param e0: orbital eccentricity
+    :param omega0: argument of periastron [radians]
+    """
+    if np.abs(e0) < 1e-3:
+        return 1.
+    return (1. + e0 * np.sin(omega0)) / (1. - e0 * np.sin(omega0))

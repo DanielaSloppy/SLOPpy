@@ -10,6 +10,7 @@ from os import path
 import oyaml as yaml
 from SLOPpy.subroutines.object_parameters import StarParameters, PlanetParameters
 from SLOPpy.config_default import *
+from SLOPpy.subroutines.kepler_exo import kepler_eclipse_time_offset
 
 __all__ = ["save_to_cpickle",
            "load_from_cpickle",
@@ -21,6 +22,7 @@ __all__ = ["save_to_cpickle",
            "yaml_parser",
            "get_filelists",
            "from_config_get_nights",
+           "get_night_phase",
            "from_config_get_instrument",
            "from_config_get_system",
            "from_config_get_pipeline",
@@ -206,6 +208,22 @@ def pars_input(config_in):
             print(" Missing RV_semiamplitude keyword for the star, the value will be computed from the RVs ")
             config_in['nights'][night]['use_analytical_rvs'] = False
 
+        """ for eclipse nights, time_of_transit can be replaced by time_of_eclipse: the transit
+            preceding the eclipse is used for the computation of the planetary RVs """
+        if get_night_phase(config_in['nights'], night) == 'eclipse' \
+                and 'time_of_transit' not in config_in['nights'][night]:
+            if 'time_of_eclipse' not in config_in['nights'][night]:
+                raise ValueError(
+                    'Night {0:s}: time_of_transit or time_of_eclipse must be specified'.format(str(night)))
+            planet_dict = config_in['planet']
+            if planet_dict.get('orbit', 'circular') == 'circular':
+                eccentricity, omega_rad = 0.0, np.pi / 2.0
+            else:
+                eccentricity, omega_rad = planet_dict['eccentricity'][0], planet_dict['omega'][0] * np.pi / 180.0
+            config_in['nights'][night]['time_of_transit'] = \
+                np.atleast_1d(config_in['nights'][night]['time_of_eclipse'])[0] - \
+                kepler_eclipse_time_offset(np.atleast_1d(planet_dict['period'])[0], eccentricity, omega_rad)
+
     """ OLD approach to compute the RV of the planet, left here because it may be useful in the future
     try:
 
@@ -280,13 +298,33 @@ def get_filelists(night_selected):
     return files_list, files_transit_out, files_transit_in, files_transit_full, files_telluric, files_star_telluric
 
 
-def from_config_get_nights(config_in):
+def from_config_get_nights(config_in, phase=None):
     """
     This subroutine creates a shortcut to the night list
     :param config_in:
+    :param phase: if 'transit' or 'eclipse', only the nights covering that phase are returned
     :return: dictionary
     """
-    return config_in['nights']
+    if phase is None:
+        return config_in['nights']
+    return {night: night_pams for night, night_pams in config_in['nights'].items()
+            if get_night_phase(config_in['nights'], night) == phase}
+
+
+def get_night_phase(night_dict, night):
+    """
+    This subroutine returns the orbital phase covered by the night, as specified
+    by the 'phase' keyword in the night section of the configuration file:
+    'transit' (transmission spectrum, default) or 'eclipse' (emission spectrum)
+    :param night_dict: dictionary of the nights
+    :param night: name of the night
+    :return: string
+    """
+    phase = night_dict[night].get('phase', 'transit')
+    if phase not in ['transit', 'eclipse']:
+        raise ValueError("Night {0:s}: phase keyword must be 'transit' or 'eclipse', "
+                         "'{1:s}' given".format(str(night), str(phase)))
+    return phase
 
 
 def from_config_get_instrument(config_in):

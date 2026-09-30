@@ -14,7 +14,7 @@ def compute_quick_transmission(config_in, lines_label):
 
     subroutine_name = 'quick_transmission'
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
     spectral_lines = from_config_get_spectral_lines(config_in)
     lines_dict = spectral_lines[lines_label]
     shared_data = load_from_cpickle('shared', config_in['output'])

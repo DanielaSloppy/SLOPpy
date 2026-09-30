@@ -38,7 +38,7 @@ def plot_transmission_binned_mcmc_iterative(config_in, lines_label, night_input=
 
 def compute_transmission_binned_mcmc(config_in, lines_label, reference='planetRF', pca_iteration=-1):
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
     planet_dict = from_config_get_planet(config_in)
     star_dict = from_config_get_star(config_in)
     clv_rm_dict = from_config_get_clv_rm(config_in)
@@ -1418,7 +1418,7 @@ def compute_transmission_binned_mcmc(config_in, lines_label, reference='planetRF
 
 def plot_transmission_binned_mcmc(config_in, lines_label, night_input='', reference='planetRF', pca_iteration=-1):
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
     planet_dict = from_config_get_planet(config_in)
     star_dict = from_config_get_star(config_in)
     clv_rm_dict = from_config_get_clv_rm(config_in)
@@ -1431,7 +1431,8 @@ def plot_transmission_binned_mcmc(config_in, lines_label, night_input='', refere
     if night_input == '':
         night_list = ['']
     else:
-        night_list = np.atleast_1d(night_input)
+        """ nights with phase: eclipse are skipped """
+        night_list = [night for night in np.atleast_1d(night_input) if night in night_dict]
 
     os.system('mkdir -p plots')
 
@@ -1584,7 +1585,7 @@ def plot_transmission_binned_mcmc(config_in, lines_label, night_input='', refere
 
 
 def plot_transmission_binned_mcmc_deprecated(config_in, lines_label, night_input=''):
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
 
     spectral_lines = from_config_get_spectral_lines(config_in)
     lines_dict = spectral_lines[lines_label]
@@ -1592,7 +1593,8 @@ def plot_transmission_binned_mcmc_deprecated(config_in, lines_label, night_input
     if night_input == '':
         night_list = night_dict
     else:
-        night_list = np.atleast_1d(night_input)
+        """ nights with phase: eclipse are skipped """
+        night_list = [night for night in np.atleast_1d(night_input) if night in night_dict]
 
     for night in night_list:
 

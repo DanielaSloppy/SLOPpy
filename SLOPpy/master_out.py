@@ -25,17 +25,22 @@ def compute_master_out(config_in):
         'step': shared_data['coadd']['step'],
         'size': shared_data['coadd']['size'],
     }
-    wmean_wflux = np.zeros(master_out_composite['size'])
-    wmean_weight = np.zeros(master_out_composite['size'])
+    """ The composite master-out is computed separately for transit and eclipse nights,
+        so that the master-out of eclipse nights only includes spectra with the planet
+        behind the star, and vice versa """
+    wmean_wflux = {phase: np.zeros(master_out_composite['size']) for phase in ['transit', 'eclipse']}
+    wmean_weight = {phase: np.zeros(master_out_composite['size']) for phase in ['transit', 'eclipse']}
 
     box_kernel = Box1DKernel(config_in['master-out'].get('boxcar_smoothing', 1))
 
     for night in night_dict:
 
+        phase = get_night_phase(night_dict, night)
+
         try:
             master_out = load_from_cpickle('master_out', config_in['output'], night)
-            wmean_wflux += master_out['rescaled'] / master_out['rescaled_err'] ** 2
-            wmean_weight += 1. // master_out['rescaled_err'] ** 2
+            wmean_wflux[phase] += master_out['rescaled'] / master_out['rescaled_err'] ** 2
+            wmean_weight[phase] += 1. // master_out['rescaled_err'] ** 2
             print("{0:45s} Night:{1:15s}   {2:s}".format(subroutine_name, night, 'Retrieved'))
             continue
         except:
@@ -161,8 +166,8 @@ def compute_master_out(config_in):
                            preserve_flux=False,
                            is_error=True)
 
-        wmean_wflux += master_out['SRF']['rescaled']/master_out['SRF']['rescaled_err']**2
-        wmean_weight += 1.//master_out['SRF']['rescaled_err']**2
+        wmean_wflux[phase] += master_out['SRF']['rescaled']/master_out['SRF']['rescaled_err']**2
+        wmean_weight[phase] += 1.//master_out['SRF']['rescaled_err']**2
 
 
 
@@ -185,22 +190,37 @@ def compute_master_out(config_in):
         save_to_cpickle('master_out_processed', processed, config_in['output'], night)
         save_to_cpickle('master_out', master_out, config_in['output'], night)
 
-    master_out_composite['SRF'] = {}
-    master_out_composite['SRF']['rescaled'] = wmean_wflux/wmean_weight
-    master_out_composite['SRF']['rescaled_err'] = np.sqrt(1./wmean_weight)
-    master_out_composite['SRF']['smoothed'] = convolve(master_out_composite['SRF']['rescaled'].copy(), box_kernel)
-    master_out_composite['SRF']['smoothed_err'] = \
-        np.sqrt(convolve((master_out_composite['SRF']['rescaled_err']) ** 2, box_kernel))
+    composite_SRF = {}
+    for phase in ['transit', 'eclipse']:
+        """ skip the phase if no night of that type has been analyzed """
+        if not np.any(wmean_weight[phase] > 0.):
+            continue
+        with np.errstate(divide='ignore', invalid='ignore'):
+            composite_SRF[phase] = {
+                'rescaled': wmean_wflux[phase]/wmean_weight[phase],
+                'rescaled_err': np.sqrt(1./wmean_weight[phase])
+            }
+        composite_SRF[phase]['smoothed'] = convolve(composite_SRF[phase]['rescaled'].copy(), box_kernel)
+        composite_SRF[phase]['smoothed_err'] = \
+            np.sqrt(convolve((composite_SRF[phase]['rescaled_err']) ** 2, box_kernel))
 
     print()
     for night in night_dict:
+        phase = get_night_phase(night_dict, night)
         try:
             master_out_composite = load_from_cpickle('master_out_composite', config_in['output'], night)
+            """ recompute if the stored composite master-out has been obtained for the other phase;
+                composites saved without the phase keyword were obtained from transit nights """
+            if master_out_composite.get('phase', 'transit') != phase:
+                raise ValueError('Stored composite master-out computed with different settings')
             print("{0:45s} Night:{1:15s}   {2:s}".format('master_out_composite', night, 'Retrieved'))
             continue
         except:
             print("{0:45s} Night:{1:15s}   {2:s}".format('master_out_composite', night, 'Computing'))
             print()
+
+        master_out_composite['SRF'] = composite_SRF[phase]
+        master_out_composite['phase'] = phase
 
         master_out = load_from_cpickle('master_out', config_in['output'], night)
         observational_pams = load_from_cpickle('observational_pams', config_in['output'], night)

@@ -5,7 +5,7 @@ from SLOPpy.subroutines.fit_subroutines import *
 from SLOPpy.subroutines.io_subroutines import *
 from SLOPpy.subroutines.plot_subroutines import *
 from SLOPpy.subroutines.shortcuts import *
-from SLOPpy.subroutines.kepler_exo import compute_planet_RV
+from SLOPpy.subroutines.kepler_exo import compute_planet_RV, kepler_eclipse_time_offset, kepler_eclipse_duration_ratio
 
 __all__ = ["prepare_datasets", "plot_dataset"]
 
@@ -140,6 +140,7 @@ def prepare_datasets(config_in):
     for night in night_dict:
 
         print('Processing data for night: ', night)
+        print('  Phase: ', get_night_phase(night_dict, night))
         print()
 
         """ List files are supposed to be in the same directory of the yaml file,
@@ -477,7 +478,68 @@ def prepare_datasets(config_in):
     print()
 
 
+def _get_orbit_parameters(planet_dict):
+    """ eccentricity and argument of periastron [radians], with the conventions of _get_observational_parameters """
+    if planet_dict.get('orbit', 'circular') == 'circular':
+        return 0.0, np.pi / 2.0
+    return planet_dict['eccentricity'][0], planet_dict['omega'][0] * np.pi / 180.0
+
+
+def _get_time_of_eclipse(observations_A, lists_dict, night_dict_key, planet_dict):
+    """
+    Central time of the secondary eclipse observed during the night.
+    If time_of_eclipse is not specified in the night section, it is computed from time_of_transit
+    (time_of_transit + P/2 for circular orbits), choosing the eclipse closest to the observations
+    """
+    if 'time_of_eclipse' in night_dict_key:
+        return np.atleast_1d(night_dict_key['time_of_eclipse'])[0]
+
+    period = np.atleast_1d(planet_dict['period'])[0]
+    eccentricity, omega_rad = _get_orbit_parameters(planet_dict)
+
+    time_of_eclipse = np.atleast_1d(night_dict_key['time_of_transit'])[0] + \
+        kepler_eclipse_time_offset(period, eccentricity, omega_rad)
+
+    bjd_median = np.median([observations_A[obs]['BJD'] for obs in lists_dict['observations']])
+    time_of_eclipse += np.round((bjd_median - time_of_eclipse) / period) * period
+
+    return time_of_eclipse
+
+
+def _get_eclipse_durations(planet_dict):
+    """
+    Total (first to fourth contact) and full (second to third contact) duration of the
+    secondary eclipse. If not specified in the planet section, they are obtained from the
+    transit durations, rescaled for eccentric orbits following Winn (2010)
+    """
+    eccentricity, omega_rad = _get_orbit_parameters(planet_dict)
+    duration_ratio = kepler_eclipse_duration_ratio(eccentricity, omega_rad)
+
+    durations = {}
+    for eclipse_key, transit_key in [['total_eclipse_duration', 'total_transit_duration'],
+                                     ['full_eclipse_duration', 'full_transit_duration']]:
+        if eclipse_key in planet_dict:
+            durations[eclipse_key] = np.atleast_1d(planet_dict[eclipse_key])[0]
+        elif transit_key in planet_dict:
+            durations[eclipse_key] = np.atleast_1d(planet_dict[transit_key])[0] * duration_ratio
+        else:
+            durations[eclipse_key] = np.atleast_1d(planet_dict['transit_duration'])[0] * duration_ratio
+
+    if not any(key in planet_dict for key in ['full_eclipse_duration', 'full_transit_duration']):
+        print('*** unclear eclipse duration, ingress/egress observations will be used to compute the master-out')
+        print('    please specify full_transit_duration or full_eclipse_duration in the planet section')
+
+    if duration_ratio != 1. and not ('total_eclipse_duration' in planet_dict and 'full_eclipse_duration' in planet_dict):
+        print('  Eclipse durations obtained from the transit durations, rescaled by {0:.4f}'.format(duration_ratio))
+
+    return durations['total_eclipse_duration'], durations['full_eclipse_duration']
+
+
 def _write_transit_list(observations_A, lists_dict, night_dict_key, planet_dict):
+
+    if night_dict_key.get('phase', 'transit') == 'eclipse':
+        return _write_eclipse_list(observations_A, lists_dict, night_dict_key, planet_dict)
+
     fileout_transit_in_list = open(night_dict_key['in_transit'], 'w')
     fileout_transit_out_list = open(night_dict_key['out_transit'], 'w')
     fileout_transit_full_list = open(night_dict_key['full_transit'], 'w')
@@ -519,6 +581,64 @@ def _write_transit_list(observations_A, lists_dict, night_dict_key, planet_dict)
     fileout_transit_in_list.close()
     fileout_transit_out_list.close()
     fileout_transit_full_list.close()
+
+    return _load_written_lists(lists_dict, night_dict_key)
+
+
+def _write_eclipse_list(observations_A, lists_dict, night_dict_key, planet_dict):
+    """
+    Observation lists for a night covering the secondary eclipse. The lists keep the
+    same keywords of the transit case, with these roles:
+        out_transit: planet completely behind the star (between second and third contact),
+                     no planetary contribution; these spectra are used for the master-out
+        full_transit: planet completely outside the stellar disk (before first or after
+                      fourth contact); these spectra are averaged in the emission spectrum
+        in_transit: all the observations with, at least partially, the planet in view
+    """
+    time_of_eclipse = _get_time_of_eclipse(observations_A, lists_dict, night_dict_key, planet_dict)
+    total_eclipse_duration, full_eclipse_duration = _get_eclipse_durations(planet_dict)
+
+    print('  Secondary eclipse: Tc = {0:.6f}, total duration = {1:.5f} d, full duration = {2:.5f} d'.format(
+        time_of_eclipse, total_eclipse_duration, full_eclipse_duration))
+
+    total_eclipse_start = time_of_eclipse - total_eclipse_duration / 2.
+    total_eclipse_end = time_of_eclipse + total_eclipse_duration / 2.
+    full_eclipse_start = time_of_eclipse - full_eclipse_duration / 2.
+    full_eclipse_end = time_of_eclipse + full_eclipse_duration / 2.
+
+    fileout_transit_in_list = open(night_dict_key['in_transit'], 'w')
+    fileout_transit_out_list = open(night_dict_key['out_transit'], 'w')
+    fileout_transit_full_list = open(night_dict_key['full_transit'], 'w')
+
+    for obs in lists_dict['observations']:
+
+        exptime_days = observations_A[obs]['EXPTIME'] / 86400.
+        """BJD times have been already corrected to match mid-exposure epochs  """
+        exposure_start = observations_A[obs]['BJD'] - exptime_days/2.
+        exposure_end = observations_A[obs]['BJD'] + exptime_days/2.
+
+        if exposure_start > full_eclipse_start and exposure_end < full_eclipse_end:
+            fileout_transit_out_list.write('{0:s}\n'.format(obs))
+        else:
+            fileout_transit_in_list.write('{0:s}\n'.format(obs))
+
+        if exposure_end < total_eclipse_start or exposure_start > total_eclipse_end:
+            fileout_transit_full_list.write('{0:s}\n'.format(obs))
+
+    fileout_transit_in_list.close()
+    fileout_transit_out_list.close()
+    fileout_transit_full_list.close()
+
+    lists_dict = _load_written_lists(lists_dict, night_dict_key)
+
+    if lists_dict['n_transit_out'] == 0:
+        print('*** No observations with the planet completely behind the star: the master-out cannot be computed')
+
+    return lists_dict
+
+
+def _load_written_lists(lists_dict, night_dict_key):
+
     files_list, files_transit_out, files_transit_in, files_transit_full, files_telluric, files_star_telluric = get_filelists(night_dict_key)
 
     lists_dict['transit_out'] = files_transit_out
@@ -636,11 +756,23 @@ def _get_observational_parameters(observations_A, lists_dict, night_dict_key, in
         'RV_star': {}
     }
 
+    """ The linear fit of the stellar RVs is performed around the central time of the
+        observed event: the transit, or the secondary eclipse for nights with phase: eclipse.
+        Using the transit time for an eclipse night would extrapolate the fit by half an orbit
+    """
+    observational_parameters['phase'] = night_dict_key.get('phase', 'transit')
+    if observational_parameters['phase'] == 'eclipse':
+        observational_parameters['time_of_eclipse'] = \
+            _get_time_of_eclipse(observations_A, lists_dict, night_dict_key, planet_dict)
+        observational_parameters['time_of_RV_reference'] = observational_parameters['time_of_eclipse']
+    else:
+        observational_parameters['time_of_RV_reference'] = observational_parameters['time_of_transit']
+
     rv_out = []
     bjd0_out = []
 
     for obs in lists_dict['transit_out']:
-        bjd0_out.extend([observations_A[obs]['BJD'] - observational_parameters['time_of_transit']])
+        bjd0_out.extend([observations_A[obs]['BJD'] - observational_parameters['time_of_RV_reference']])
         rv_out.extend([observations_A[obs]['RVC']])
 
     observational_parameters['RV_star']['slope'], \
@@ -715,7 +847,7 @@ def _get_observational_parameters(observations_A, lists_dict, night_dict_key, in
                            (observational_parameters[obs]['BJD'] - observational_parameters['time_of_transit'])/planet_dict['period'][0])
         else:
             rvc_bjdshift = observational_parameters['RV_star']['slope'] * \
-                           (observational_parameters[obs]['BJD'] - observational_parameters['time_of_transit'])
+                           (observational_parameters[obs]['BJD'] - observational_parameters['time_of_RV_reference'])
 
         observational_parameters[obs]['RV_bjdshift'] = rvc_bjdshift
         observational_parameters[obs]['rv_shift_ORF2SRF'] = observational_parameters[obs]['BERV'] - \

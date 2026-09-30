@@ -21,7 +21,7 @@ def compute_sysrem_correction(config_in):
     compute_pca_preparation(config_in)
     print()
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
     pca_parameters = from_config_get_pca_parameters(config_in)
 
     for night in night_dict:
@@ -107,7 +107,7 @@ def plot_sysrem_correction(config_in, night_input=''):
 
     subroutine_name = 'transmission_spectrum_preparation'
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
 
     if night_input == '':
         night_list = night_dict

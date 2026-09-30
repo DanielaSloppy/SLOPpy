@@ -1,5 +1,6 @@
 from __future__ import print_function, division
 from SLOPpy.subroutines.common import *
+from SLOPpy.subroutines.constants import *
 from SLOPpy.subroutines.spectral_subroutines import *
 from SLOPpy.subroutines.io_subroutines import *
 from SLOPpy.subroutines.fit_subroutines import *
@@ -11,22 +12,70 @@ from scipy.interpolate import UnivariateSpline
 from scipy.signal import savgol_filter
 
 
-__all__ = ['compute_transmission_spectrum_preparation',
-           'plot_transmission_spectrum_preparation']
+__all__ = ['compute_emission_spectrum_preparation',
+           'plot_emission_spectrum_preparation',
+           'compute_savgol_continuum']
 
-def compute_transmission_spectrum_preparation(config_in):
 
-    subroutine_name = 'transmission_spectrum_preparation'
+def compute_savgol_continuum(flux, wave, step, window=301, polyorder=2, window_kms=None):
+    """
+    Continuum of each order of a 2D spectrum, estimated with a Savitzky-Golay filter
+    :param flux: 2D array (n_orders x n_pixels)
+    :param wave: 2D wavelength array
+    :param step: 2D wavelength step array
+    :param window: width of the filter window in pixels
+    :param polyorder: order of the polynomial fitted within the window
+    :param window_kms: width of the filter window in km/s. When provided, it overrides
+        window and it is converted into pixels order by order, using the local
+        velocity step, so that the same value can be used for any instrument
+    :return: 2D array with the continuum, with zero values replaced by unity
+    """
+    n_orders, n_pixels = np.shape(flux)
+    continuum = np.empty([n_orders, n_pixels], dtype=np.double)
 
-    """ nights with phase: eclipse are analyzed by emission_spectrum_preparation """
-    night_dict = from_config_get_nights(config_in, phase='transit')
+    """ the window must be odd, larger than polyorder and not larger than the order """
+    max_window = n_pixels if n_pixels % 2 == 1 else n_pixels - 1
+    min_window = polyorder + 2 if polyorder % 2 == 1 else polyorder + 1
+
+    for order in range(0, n_orders):
+        if window_kms is not None:
+            velocity_step = speed_of_light_km * np.median(step[order, :] / wave[order, :])
+            window_order = int(np.round(window_kms / velocity_step))
+        else:
+            window_order = int(window)
+
+        if window_order % 2 == 0:
+            window_order += 1
+        window_order = min(max(window_order, min_window), max_window)
+
+        continuum[order, :] = savgol_filter(flux[order, :], window_order, polyorder)
+
+    continuum[continuum == 0] = 1
+    return continuum
+
+
+def compute_emission_spectrum_preparation(config_in):
+
+    subroutine_name = 'emission_spectrum_preparation'
+
+    """ only nights with phase: eclipse are analyzed here """
+    night_dict = from_config_get_nights(config_in, phase='eclipse')
 
     for night in night_dict:
 
+        savgol_pams = {
+            'window': int(night_dict[night].get('savgol_window', 301)),
+            'polyorder': int(night_dict[night].get('savgol_polyorder', 2)),
+            'window_kms': night_dict[night].get('savgol_window_kms', None)
+        }
+
         try:
-            preparation = load_from_cpickle('transmission_preparation',
+            preparation = load_from_cpickle('emission_preparation',
                                           config_in['output'],
                                           night)
+            """ recompute if the stored spectra were obtained with a different normalization """
+            if preparation.get('savgol_pams', None) != savgol_pams:
+                raise ValueError('Stored preparation computed with different settings')
             print("{0:45s} Night:{1:15s}   {2:s}".format(subroutine_name, night, 'Retrieved'))
             continue
         except:
@@ -36,14 +85,21 @@ def compute_transmission_spectrum_preparation(config_in):
         """ Retrieving the list of observations"""
         lists = load_from_cpickle('lists', config_in['output'], night)
 
-        calib_data = load_from_cpickle('calibration_fibA', config_in['output'], night)
         input_data = retrieve_observations(config_in['output'], night, lists['observations'])
         observational_pams = load_from_cpickle('observational_pams', config_in['output'], night)
 
         master_out = load_master_out_for_preparation(config_in, night)
 
+        if savgol_pams['window_kms'] is not None:
+            print('  Continuum normalization: Savitzky-Golay filter, window {0:.1f} km/s, polyorder {1:d}'.format(
+                savgol_pams['window_kms'], savgol_pams['polyorder']))
+        else:
+            print('  Continuum normalization: Savitzky-Golay filter, window {0:d} pixels, polyorder {1:d}'.format(
+                savgol_pams['window'], savgol_pams['polyorder']))
+
         preparation = {
             'subroutine': subroutine_name,
+            'savgol_pams': savgol_pams,
         }
 
         for obs in lists['observations']:
@@ -61,18 +117,24 @@ def compute_transmission_spectrum_preparation(config_in):
                                                 observational_pams[obs]['rv_shift_ORF2SRF_mod'],
                                                 observational_pams['n_orders'])
 
-            #replace_values_errors(preparation[obs]['master_out']['rebinned'],
-            #                      preparation[obs]['master_out']['rebinned_err'],
-            #                      threshold=0.0001, replacement=1.0000)
+            """ Step 3): obtain the emission spectrum for this observation, by subtracting the
+                master-out from the observation after both have been normalized by their continuum.
+                The result is stored under the same keywords used for the transmission spectrum
+            """
+            e2ds_cont = compute_savgol_continuum(input_data[obs]['e2ds'],
+                                                 input_data[obs]['wave'],
+                                                 input_data[obs]['step'],
+                                                 **savgol_pams)
+            master_out_cont = compute_savgol_continuum(preparation[obs]['master_out']['rebinned'],
+                                                       input_data[obs]['wave'],
+                                                       input_data[obs]['step'],
+                                                       **savgol_pams)
 
-            """ Step 3): obtain the unscaled transmission spectrum for this observation """
-            preparation[obs]['ratio'] = input_data[obs]['e2ds']/\
-                                      preparation[obs]['master_out']['rebinned']
-            preparation[obs]['ratio_err'] = preparation[obs]['ratio'] * \
-                                          np.sqrt((input_data[obs]['e2ds_err']/
-                                                   input_data[obs]['e2ds'])**2 +
-                                                  (preparation[obs]['master_out']['rebinned_err']/
-                                                   preparation[obs]['master_out']['rebinned'])**2)
+            preparation[obs]['ratio'] = input_data[obs]['e2ds'] / e2ds_cont - \
+                                      preparation[obs]['master_out']['rebinned'] / master_out_cont
+            preparation[obs]['ratio_err'] = np.sqrt((input_data[obs]['e2ds_err'] / e2ds_cont)**2 +
+                                                  (preparation[obs]['master_out']['rebinned_err'] /
+                                                   master_out_cont)**2)
 
             preparation[obs]['ratio_precleaning'] = preparation[obs]['ratio'].copy()
             preparation[obs]['ratio_precleaning_err'] = preparation[obs]['ratio_err'].copy()
@@ -81,8 +143,9 @@ def compute_transmission_spectrum_preparation(config_in):
         if night_dict[night].get('spline_residuals', True):
 
             print()
-            print('   Cleaning for telluric residuals with Univariate Spline - threshold about 5%')
-            # cleaning using spline_univariate
+            print('   Cleaning for telluric residuals with Univariate Spline - threshold about 0.05')
+            """ emission spectra are centred on zero: they are shifted to unity before the
+                spline fit, instead of being normalized by their median """
             for order in range(0, observational_pams['n_orders']):
                 obs_reference =  lists['observations'][0]
 
@@ -91,12 +154,9 @@ def compute_transmission_spectrum_preparation(config_in):
 
                 time_from_transit = np.empty(len_y, dtype=np.double)
                 data_array = np.empty([len_y, len_x], dtype=np.double)
-                median_array =  np.empty(len_y, dtype=np.double)
                 for i_obs, obs in enumerate(lists['observations']):
                     time_from_transit[i_obs] =  input_data[obs]['BJD'] - observational_pams['time_of_transit']
-                    median_array[i_obs] = np.median(preparation[obs]['ratio_precleaning'][order ,:])
-                    data_array[i_obs, :] = preparation[obs]['ratio_precleaning'][order ,:]/median_array[i_obs]
-                    #wave = preparation[obs]['wave'][order, :]
+                    data_array[i_obs, :] = preparation[obs]['ratio_precleaning'][order ,:] + 1.
 
                 res = data_array * 1.
                 val = np.empty([len_y, len_x], dtype=np.double)
@@ -111,7 +171,7 @@ def compute_transmission_spectrum_preparation(config_in):
 
                 for i_obs, obs in enumerate(lists['observations']):
                     if np.sum(sel[i_obs]) > 0:
-                        preparation[obs]['ratio'][order, sel[i_obs]] = val[i_obs, sel[i_obs]] * median_array[i_obs]
+                        preparation[obs]['ratio'][order, sel[i_obs]] = val[i_obs, sel[i_obs]] - 1.
                         preparation[obs]['ratio_err'][order, sel[i_obs]] *= 10.
         else:
             print()
@@ -120,93 +180,70 @@ def compute_transmission_spectrum_preparation(config_in):
 
         for obs in lists['observations']:
 
-            preparation[obs]['deblazed'] = preparation[obs]['ratio'] / calib_data['blaze'] / (input_data[obs]['step'] / np.median(input_data[obs]['step']))
-            preparation[obs]['deblazed_err'] = preparation[obs]['ratio_err'] / calib_data['blaze'] / (input_data[obs]['step'] / np.median(input_data[obs]['step']))
-
+            """ blaze and pixel-step dependence have already been removed by the continuum normalization """
+            preparation[obs]['deblazed'] = preparation[obs]['ratio'].copy()
+            preparation[obs]['deblazed_err'] = preparation[obs]['ratio_err'].copy()
 
             if not config_in['settings'].get('full_output', False):
                 del preparation[obs]['master_out']
-            else:
-                # added for plotting purposes only
-                preparation[obs]['rescaling'], \
-                preparation[obs]['rescaled'], \
-                preparation[obs]['rescaled_err'] = perform_rescaling(
-                    preparation[obs]['wave'],
-                    preparation[obs]['deblazed'],
-                    preparation[obs]['deblazed_err'],
-                    observational_pams['wavelength_rescaling'])
 
-        save_to_cpickle('transmission_preparation', preparation, config_in['output'], night)
+        save_to_cpickle('emission_preparation', preparation, config_in['output'], night)
 
     print()
-    """ Keep going from here after preparation, unless the subroutines has been called just
-        to preform the data preparation step
-    """
 
 
-def plot_transmission_spectrum_preparation(config_in, night_input=''):
+def plot_emission_spectrum_preparation(config_in, night_input=''):
 
-    subroutine_name = 'transmission_spectrum_preparation'
+    subroutine_name = 'emission_spectrum_preparation'
 
-    night_dict = from_config_get_nights(config_in, phase='transit')
+    night_dict = from_config_get_nights(config_in, phase='eclipse')
 
     if night_input == '':
         night_list = night_dict
     else:
-        """ nights with phase: eclipse are skipped """
-        night_list = [night for night in np.atleast_1d(night_input) if night in night_dict]
-
-
-
+        night_list = np.atleast_1d(night_input)
 
     for night in night_list:
 
         """ Retrieving the list of observations"""
         lists = load_from_cpickle('lists', config_in['output'], night)
         observational_pams = load_from_cpickle('observational_pams', config_in['output'], night)
-
-        # ! To be removed when testing is done
-        # ! This plots do not make any sense anymore
         input_data = retrieve_observations(config_in['output'], night, lists['observations'])
-
 
         """ Retrieving the analysis"""
         try:
-            preparation = load_from_cpickle('transmission_preparation', config_in['output'], night)
+            preparation = load_from_cpickle('emission_preparation', config_in['output'], night)
         except:
-            print("No transmission spectrum results, no plots")
+            print("No emission spectrum results, no plots")
             print()
             continue
 
-
-        #from SLOPpy.subroutines.lines_fit_functions import logprob_case12
         from matplotlib.colors import BoundaryNorm
         from matplotlib.ticker import MaxNLocator
 
+        """ emission spectra are centred on zero: they are shifted to unity for plotting purposes """
+        obs_reference = lists['observations'][0]
         len_y = len(lists['observations'])
-        len_x = 4096
-        order= 11
+        len_x = np.shape(preparation[obs_reference]['deblazed'])[1]
+        order = 11
 
         time_from_transit = np.empty(len_y, dtype=np.double)
         plot_data = np.empty([len_y, len_x], dtype=np.double)
 
         for i_obs, obs in enumerate(lists['observations']):
             time_from_transit[i_obs] =  input_data[obs]['BJD'] - observational_pams['time_of_transit']
-            plot_data[i_obs, :] = preparation[obs]['deblazed'][order ,:]/ np.median(preparation[obs]['deblazed'][order ,:])
+            plot_data[i_obs, :] = preparation[obs]['deblazed'][order ,:] + 1.
             wave = preparation[obs]['wave'][order, :]
-
 
         wave_meshgrid, time_meshgrid = np.meshgrid(wave, time_from_transit)
 
         cmap = plt.get_cmap('coolwarm')
 
-        #levels = MaxNLocator(nbins=15).tick_values(
-        #    plot_data.min(), plot_data.max())
         levels = MaxNLocator(nbins=21).tick_values(0.90, 1.10)
         norm = BoundaryNorm(levels, ncolors=cmap.N, clip=True)
 
         plt.figure(figsize=(15, 10))
-        plt.title('Transmission map in observer reference frame\n {0:s}'.format(night))
+        plt.title('Emission map in observer reference frame (shifted by +1)\n {0:s}'.format(night))
 
         PCF = plt.contourf(wave_meshgrid, time_meshgrid,
                             plot_data, levels=levels, cmap=cmap)
@@ -214,17 +251,13 @@ def plot_transmission_spectrum_preparation(config_in, night_input=''):
         cbar.ax.set_ylabel('Intensity')
         plt.show()
 
-
         if night_dict[night].get('spline_residuals', True):
             res = plot_data * 1.
-            from scipy.interpolate import UnivariateSpline
-            for ii in range(0,4096):
+            for ii in range(0, len_x):
                 spl = UnivariateSpline(time_from_transit, plot_data[:, ii])
                 val = spl(time_from_transit)
                 res[:,ii] -= val
                 res[:,ii] /= val
-
-
 
             cmap = plt.get_cmap('coolwarm')
 
@@ -239,10 +272,6 @@ def plot_transmission_spectrum_preparation(config_in, night_input=''):
             cbar.ax.set_ylabel('Intensity')
             plt.show()
 
-
-
-
-
         """ Creation of the color array, based on the BJD of the observations
         """
         colors_properties, colors_plot, colors_scatter = make_color_array_matplotlib3(lists, observational_pams)
@@ -252,31 +281,12 @@ def plot_transmission_spectrum_preparation(config_in, night_input=''):
         gs = GridSpec(1, 2, width_ratios=[50, 1])
         ax1 = plt.subplot(gs[0, 0])
 
-        ax1.set_ylim(0.90, 1.10)
-        #ax2 = plt.subplot(gs[1, 0], sharex=ax1, sharey=ax1)
+        ax1.set_ylim(-0.10, 0.10)
         cbax1 = plt.subplot(gs[:, 1])
 
         for obs in lists['transit_in']:
-
-            #preparation[obs]['rescaling'], \
-            #preparation[obs]['rescaled'], \
-            #preparation[obs]['rescaled_err'] = perform_rescaling(
-            #    preparation[obs]['wave'],
-            #    preparation[obs]['deblazed'] / (input_data[obs]['step'] / np.median(input_data[obs]['step'])),
-            #    preparation[obs]['deblazed_err'] / (input_data[obs]['step'] / np.median(input_data[obs]['step'])),
-            #    observational_pams['wavelength_rescaling'])
-
-            preparation[obs]['rescaling'], \
-            preparation[obs]['rescaled'], \
-            preparation[obs]['rescaled_err'] = perform_rescaling(
-                preparation[obs]['wave'],
-                preparation[obs]['deblazed'],
-                preparation[obs]['deblazed_err'],
-                observational_pams['wavelength_rescaling'])
-
-
             ax1.scatter(preparation[obs]['wave'],
-                    preparation[obs]['rescaled'],
+                    preparation[obs]['deblazed'],
                     s=1, alpha=0.25,
                     color=colors_plot['mBJD'][obs])
 

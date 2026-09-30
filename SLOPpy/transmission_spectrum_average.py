@@ -18,7 +18,7 @@ sampler = 'emcee'
 
 def compute_transmission_spectrum_average(config_in, lines_label, reference='planetRF', pca_iteration=-1):
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
 
     spectral_lines = from_config_get_spectral_lines(config_in)
     line_iter_dict = spectral_lines[lines_label]
@@ -218,7 +218,7 @@ def plot_transmission_spectrum_average(config_in, lines_label, night_input='', r
 
 
     # Workaround to check if the transmission spectrum has been obtained through PCA iterations
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
     for night in night_dict:
         preparation_input = load_from_cpickle('transmission_preparation', config_in['output'], night)
 

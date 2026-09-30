@@ -25,7 +25,7 @@ def compute_transmission_mcmc_iterative(config_in, lines_label):
 
 def compute_transmission_mcmc(config_in, lines_label, reference='planetRF', pca_iteration=-1):
 
-    night_dict = from_config_get_nights(config_in)
+    night_dict = from_config_get_nights(config_in, phase='transit')
     planet_dict = from_config_get_planet(config_in)
 
     shared_data = load_from_cpickle('shared', config_in['output'])
